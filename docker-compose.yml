@@ -1,0 +1,47 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: db_api_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: db_user
+      POSTGRES_PASSWORD: db_secret_pass
+      POSTGRES_DB: db_ishikawa
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U db_user -d db_ishikawa"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ishikawa_internal
+
+  db-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: db_api_service
+    restart: unless-stopped
+    environment:
+      ENVIRONMENT: development
+      API_V1_STR: /v1
+      DATABASE_URL: postgresql+psycopg://db_user:db_secret_pass@postgres:5432/db_ishikawa
+      SERVICE_TOKEN: local-dev-service-token-change-in-production
+    ports:
+      - "8002:8001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - ishikawa_internal
+
+volumes:
+  postgres_data:
+    name: db_api_postgres_data
+
+networks:
+  ishikawa_internal:
+    name: db_api_ishikawa_network
