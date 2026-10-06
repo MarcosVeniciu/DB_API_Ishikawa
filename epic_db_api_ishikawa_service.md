@@ -294,7 +294,7 @@ flowchart TD
 
 - **Branch:** `feature/db-api-producers`
 - **Type:** Vertical Slice
-- **Status:** Planned
+- **Status:** Completed (Merged into develop)
 - **Objective:** Persistir produtores com unicidade, busca e lock otimista.
 - **Demonstrable Outcome:** CRUD de produtores; `producers_managed` correto no consultor.
 - **Contributes to:** S1, S2, S3
@@ -318,10 +318,10 @@ flowchart TD
 - **Preserves:** semântica de `IProducerRepository` (`None`/`False`/`KeyError`).
 
 #### Acceptance Criteria
-- [ ] Email duplicado retorna 409; `PUT` com versão antiga retorna 412.
-- [ ] `find_by_name` devolve o mais antigo de forma determinística.
-- [ ] `GET /v1/consultants/{id}` lista `producers_managed` a partir da FK.
-- [ ] `DELETE` inexistente retorna 404 (→ `False`).
+- [x] Email duplicado retorna 409; `PUT` com versão antiga retorna 412.
+- [x] `find_by_name` devolve o mais antigo de forma determinística.
+- [x] `GET /v1/consultants/{id}` lista `producers_managed` a partir da FK.
+- [x] `DELETE` inexistente retorna 404 (→ `False`).
 
 #### Integration & Rollout
 - **Integration with Existing Code:** estende rotas e testes de F1.
@@ -342,7 +342,7 @@ flowchart TD
 
 - **Branch:** `feature/db-api-diagnostic-results`
 - **Type:** Vertical Slice
-- **Status:** Planned
+- **Status:** In Progress (/plan)
 - **Objective:** Persistir 1 resultado por produtor com upsert versionado.
 - **Demonstrable Outcome:** `PUT/GET /v1/diagnostic-results/{producer_id}` funcionais.
 - **Contributes to:** S1, S3
