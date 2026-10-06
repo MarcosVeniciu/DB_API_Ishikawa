@@ -3,7 +3,7 @@ from typing import List, Optional, Tuple
 from uuid import UUID
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
-from app.db.models import Consultant
+from app.db.models import Consultant, Producer
 
 
 class ConsultantRepository:
@@ -80,3 +80,13 @@ class ConsultantRepository:
         if updated:
             self.session.commit()
         return updated
+
+    def get_producers_managed(self, consultant_id: UUID) -> List[UUID]:
+        """Retorna lista de UUIDs dos produtores gerenciados por este consultor."""
+        stmt = (
+            select(Producer.id)
+            .where(Producer.consultant_id == consultant_id)
+            .order_by(Producer.created_at.asc())
+        )
+        return list(self.session.execute(stmt).scalars().all())
+

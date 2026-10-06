@@ -41,21 +41,27 @@ class ConsultantService:
             version=1,
         )
         created = self.repository.create(consultant)
-        return ConsultantDTO.model_validate(created)
+        dto_out = ConsultantDTO.model_validate(created)
+        dto_out.producers_managed = []
+        return dto_out
 
     def get_consultant_by_id(self, consultant_id: UUID) -> ConsultantDTO:
         """Busca consultor por ID lançando NotFoundError caso não exista."""
         consultant = self.repository.get_by_id(consultant_id)
         if not consultant:
             raise NotFoundError(f"Consultor {consultant_id} nao encontrado.")
-        return ConsultantDTO.model_validate(consultant)
+        dto_out = ConsultantDTO.model_validate(consultant)
+        dto_out.producers_managed = self.repository.get_producers_managed(consultant_id)
+        return dto_out
 
     def get_consultant_by_email(self, email: str) -> Optional[ConsultantDTO]:
         """Busca consultor por e-mail retornando None caso não encontrado."""
         consultant = self.repository.get_by_email(email)
         if not consultant:
             return None
-        return ConsultantDTO.model_validate(consultant)
+        dto_out = ConsultantDTO.model_validate(consultant)
+        dto_out.producers_managed = self.repository.get_producers_managed(consultant.id)
+        return dto_out
 
     def list_consultants(
         self,
@@ -65,7 +71,12 @@ class ConsultantService:
     ) -> Tuple[List[ConsultantDTO], int]:
         """Lista consultores paginados."""
         items, total = self.repository.get_all(limit=limit, offset=offset, email=email)
-        return [ConsultantDTO.model_validate(item) for item in items], total
+        dtos = []
+        for item in items:
+            dto_out = ConsultantDTO.model_validate(item)
+            dto_out.producers_managed = self.repository.get_producers_managed(item.id)
+            dtos.append(dto_out)
+        return dtos, total
 
     def update_consultant(
         self,
@@ -88,7 +99,9 @@ class ConsultantService:
                 f"Conflito de concorrencia para o consultor {consultant_id}: "
                 f"versao esperada {expected_version}, mas versao atual no banco e {existing.version}."
             )
-        return ConsultantDTO.model_validate(updated)
+        dto_out = ConsultantDTO.model_validate(updated)
+        dto_out.producers_managed = self.repository.get_producers_managed(updated.id)
+        return dto_out
 
     def verify_credentials(self, dto: AuthVerifyRequest) -> AuthVerifyResponse:
         """Valida credenciais do consultor de forma segura contra enumeração."""
