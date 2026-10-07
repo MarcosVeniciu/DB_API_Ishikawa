@@ -138,7 +138,7 @@ def test_run_seed_orchestration(mock_seed_consultant, mock_load_json):
     # Arrange
     mock_db = MagicMock()
     mock_db.query.return_value.filter.return_value.first.return_value = None
-    mock_db.execute.return_value.rowcount = 1
+    mock_db.execute.return_value.scalar_one_or_none.return_value = uuid.uuid4()
     consultant_id = uuid.uuid4()
     mock_seed_consultant.return_value = consultant_id
     mock_load_json.return_value = [

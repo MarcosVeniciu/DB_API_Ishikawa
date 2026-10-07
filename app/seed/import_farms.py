@@ -168,9 +168,10 @@ def run_seed(
                 version=parsed["version"],
             )
             .on_conflict_do_nothing()
+            .returning(Producer.id)
         )
-        res = db.execute(stmt)
-        if res.rowcount and res.rowcount > 0:
+        inserted_id = db.execute(stmt).scalar_one_or_none()
+        if inserted_id is not None:
             producers_created += 1
         else:
             producers_skipped += 1
