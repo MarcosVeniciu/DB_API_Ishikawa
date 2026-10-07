@@ -27,6 +27,8 @@ DEFAULT_CONSULTANT_NAME = "Consultor Educampo"
 DEFAULT_CONSULTANT_EMAIL = "consultor@educampo.com"
 DEFAULT_CONSULTANT_PASSWORD = "admin123"
 DEFAULT_PRODUCER_PASSWORD = "produtor123"
+DEFAULT_FARM_NAME = "Fazenda Sem Nome"
+MOCK_EMAIL_DOMAIN = "@educampo.mock"
 
 
 class SeedSummaryDTO(BaseModel):
@@ -55,40 +57,48 @@ def load_farms_json(json_path: Union[str, Path]) -> List[Dict[str, Any]]:
         return json.load(f)
 
 
+def _extract_farm_uuid(raw_id: Any) -> uuid.UUID:
+    """Extrai UUID determinístico ou aleatório a partir de raw_id."""
+    if not raw_id:
+        return uuid.uuid4()
+    try:
+        return uuid.UUID(str(raw_id))
+    except (ValueError, AttributeError):
+        return uuid.uuid5(uuid.NAMESPACE_DNS, str(raw_id))
+
+
+def _extract_farm_email(item: Dict[str, Any], farm_uuid: uuid.UUID) -> str:
+    """Extrai ou deriva e-mail válido para o produtor."""
+    raw_email = (
+        item.get("email")
+        or item.get("dados", {}).get("email")
+        or f"{farm_uuid}{MOCK_EMAIL_DOMAIN}"
+    )
+    return str(raw_email).strip().lower()
+
+
+def _parse_iso_timestamp(raw_ts: Any) -> datetime:
+    """Converte representação ISO ou timestamp bruto para datetime UTC timezone-aware."""
+    if not raw_ts:
+        return datetime.now(timezone.utc)
+    try:
+        return datetime.fromisoformat(str(raw_ts).replace("Z", "+00:00"))
+    except ValueError:
+        return datetime.now(timezone.utc)
+
+
 def parse_farm_item(
     item: Dict[str, Any], consultant_id: uuid.UUID
 ) -> Dict[str, Any]:
     """Converte e normaliza um item bruto do farms.json para o schema do Producer."""
-    raw_id = item.get("id_fazenda") or item.get("id")
-    if raw_id:
-        try:
-            farm_uuid = uuid.UUID(str(raw_id))
-        except (ValueError, AttributeError):
-            farm_uuid = uuid.uuid5(uuid.NAMESPACE_DNS, str(raw_id))
-    else:
-        farm_uuid = uuid.uuid4()
-
-    nome = str(item.get("nome", "Fazenda Sem Nome")).strip()
-    raw_email = (
-        item.get("email")
-        or item.get("dados", {}).get("email")
-        or f"{farm_uuid}@educampo.mock"
-    )
-    email = str(raw_email).strip().lower()
+    farm_uuid = _extract_farm_uuid(item.get("id_fazenda") or item.get("id"))
+    nome = str(item.get("nome", DEFAULT_FARM_NAME)).strip()
+    email = _extract_farm_email(item, farm_uuid)
 
     raw_password = item.get("password") or DEFAULT_PRODUCER_PASSWORD
     hashed_password = hash_password(str(raw_password))
 
-    created_at_raw = item.get("created_at") or item.get("data_cadastro")
-    if created_at_raw:
-        try:
-            created_at = datetime.fromisoformat(
-                str(created_at_raw).replace("Z", "+00:00")
-            )
-        except ValueError:
-            created_at = datetime.now(timezone.utc)
-    else:
-        created_at = datetime.now(timezone.utc)
+    created_at = _parse_iso_timestamp(item.get("created_at") or item.get("data_cadastro"))
 
     dados = item.get("dados") or {}
     id_fazenda = str(item.get("id_fazenda") or farm_uuid)
@@ -132,6 +142,29 @@ def seed_default_consultant(db: Session) -> uuid.UUID:
     return new_consultant.id
 
 
+def _insert_producer_idempotent(db: Session, producer_data: Dict[str, Any]) -> bool:
+    """Insere registro de produtor com ON CONFLICT DO NOTHING. Retorna True se inserido."""
+    stmt = (
+        pg_insert(Producer)
+        .values(
+            id=producer_data["id"],
+            email=producer_data["email"],
+            hashed_password=producer_data["hashed_password"],
+            nome=producer_data["nome"],
+            id_fazenda=producer_data["id_fazenda"],
+            dados=producer_data["dados"],
+            consultant_id=producer_data["consultant_id"],
+            created_at=producer_data["created_at"],
+            updated_at=producer_data["updated_at"],
+            version=producer_data["version"],
+        )
+        .on_conflict_do_nothing()
+        .returning(Producer.id)
+    )
+    inserted_id = db.execute(stmt).scalar_one_or_none()
+    return inserted_id is not None
+
+
 def run_seed(
     db: Session, json_path: Optional[Union[str, Path]] = None
 ) -> SeedSummaryDTO:
@@ -153,25 +186,7 @@ def run_seed(
 
     for item in raw_farms:
         parsed = parse_farm_item(item, consultant_id)
-        stmt = (
-            pg_insert(Producer)
-            .values(
-                id=parsed["id"],
-                email=parsed["email"],
-                hashed_password=parsed["hashed_password"],
-                nome=parsed["nome"],
-                id_fazenda=parsed["id_fazenda"],
-                dados=parsed["dados"],
-                consultant_id=parsed["consultant_id"],
-                created_at=parsed["created_at"],
-                updated_at=parsed["updated_at"],
-                version=parsed["version"],
-            )
-            .on_conflict_do_nothing()
-            .returning(Producer.id)
-        )
-        inserted_id = db.execute(stmt).scalar_one_or_none()
-        if inserted_id is not None:
+        if _insert_producer_idempotent(db, parsed):
             producers_created += 1
         else:
             producers_skipped += 1

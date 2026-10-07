@@ -4,12 +4,18 @@ from sqlalchemy.orm import declarative_base, sessionmaker, Session
 from app.core.config import Settings, settings
 
 
+SUPABASE_POOLER_HOST_SUBSTRING: str = "pooler.supabase.com"
+
+
 def build_engine_connect_args(cfg: Settings) -> Dict[str, Any]:
     """Constrói connect_args para o driver psycopg conforme ambiente e pooler Supavisor."""
     connect_args: Dict[str, Any] = {}
     if cfg.DB_PREPARE_THRESHOLD is not None:
         connect_args["prepare_threshold"] = cfg.DB_PREPARE_THRESHOLD
-    elif "pooler.supabase.com" in cfg.DATABASE_URL or cfg.ENVIRONMENT == "production":
+    elif (
+        SUPABASE_POOLER_HOST_SUBSTRING in cfg.DATABASE_URL
+        or cfg.ENVIRONMENT == "production"
+    ):
         connect_args["prepare_threshold"] = None
     return connect_args
 

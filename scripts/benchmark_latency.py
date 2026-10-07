@@ -8,8 +8,13 @@ import argparse
 import json
 import statistics
 import time
-from typing import Dict, List
+from typing import Any, Dict, List, Optional
 import httpx
+
+P50_RATIO: float = 0.50
+P95_RATIO: float = 0.95
+P99_RATIO: float = 0.99
+S5_TARGET_P95_MS: float = 50.0
 
 
 def calculate_metrics(latencies: List[float]) -> Dict[str, float]:
@@ -18,9 +23,9 @@ def calculate_metrics(latencies: List[float]) -> Dict[str, float]:
         return {}
     sorted_lat = sorted(latencies)
     n = len(sorted_lat)
-    p50_idx = int(n * 0.50)
-    p95_idx = min(int(n * 0.95), n - 1)
-    p99_idx = min(int(n * 0.99), n - 1)
+    p50_idx = int(n * P50_RATIO)
+    p95_idx = min(int(n * P95_RATIO), n - 1)
+    p99_idx = min(int(n * P99_RATIO), n - 1)
 
     return {
         "count": n,
@@ -31,6 +36,22 @@ def calculate_metrics(latencies: List[float]) -> Dict[str, float]:
         "p99_ms": round(sorted_lat[p99_idx], 2),
         "max_ms": round(sorted_lat[-1], 2),
     }
+
+
+def _measure_endpoint_latency(
+    client: httpx.Client,
+    method: str,
+    path: str,
+    headers: Optional[Dict[str, str]] = None,
+    json_body: Optional[Dict[str, Any]] = None,
+) -> Optional[float]:
+    """Mede a latência de uma chamada HTTP em ms se a resposta for bem-sucedida (200 OK)."""
+    t0 = time.perf_counter()
+    response = client.request(method, path, headers=headers, json=json_body)
+    duration_ms = (time.perf_counter() - t0) * 1000
+    if response.status_code == 200:
+        return duration_ms
+    return None
 
 
 def run_benchmark(
@@ -49,35 +70,33 @@ def run_benchmark(
     with httpx.Client(base_url=base_url, timeout=5.0) as client:
         print(f"Iniciando benchmark contra {base_url} ({iterations} iterações)...")
 
-        for i in range(iterations):
+        for _ in range(iterations):
             # 1. Healthcheck Ready
-            t0 = time.perf_counter()
-            r_health = client.get("/health/ready")
-            t_health = (time.perf_counter() - t0) * 1000
-            if r_health.status_code == 200:
-                results["health_ready"].append(t_health)
+            lat_health = _measure_endpoint_latency(client, "GET", "/health/ready")
+            if lat_health is not None:
+                results["health_ready"].append(lat_health)
 
             # 2. List Producers
-            t0 = time.perf_counter()
-            r_prod = client.get("/v1/producers?limit=10", headers=headers)
-            t_prod = (time.perf_counter() - t0) * 1000
-            if r_prod.status_code == 200:
-                results["list_producers"].append(t_prod)
+            lat_prod = _measure_endpoint_latency(
+                client, "GET", "/v1/producers?limit=10", headers=headers
+            )
+            if lat_prod is not None:
+                results["list_producers"].append(lat_prod)
 
             # 3. Auth Verify
-            t0 = time.perf_counter()
-            r_auth = client.post(
+            lat_auth = _measure_endpoint_latency(
+                client,
+                "POST",
                 "/v1/auth/verify",
-                json={
+                headers=headers,
+                json_body={
                     "email": "consultor@educampo.com",
                     "password": "admin123",
                     "role": "consultant",
                 },
-                headers=headers,
             )
-            t_auth = (time.perf_counter() - t0) * 1000
-            if r_auth.status_code == 200:
-                results["auth_verify"].append(t_auth)
+            if lat_auth is not None:
+                results["auth_verify"].append(lat_auth)
 
     report = {name: calculate_metrics(lats) for name, lats in results.items()}
     return report
@@ -120,13 +139,19 @@ def main() -> None:
     all_passed = True
     for endpoint, metrics in report.items():
         p95 = metrics.get("p95_ms", 999.0)
-        status_str = "APROVADO (p95 < 50ms)" if p95 < 50.0 else "REPROVADO (p95 >= 50ms)"
+        status_str = (
+            f"APROVADO (p95 < {S5_TARGET_P95_MS}ms)"
+            if p95 < S5_TARGET_P95_MS
+            else f"REPROVADO (p95 >= {S5_TARGET_P95_MS}ms)"
+        )
         print(f"Endpoint '{endpoint}': p95={p95} ms -> {status_str}")
-        if p95 >= 50.0:
+        if p95 >= S5_TARGET_P95_MS:
             all_passed = False
 
     if all_passed:
-        print("\n=> CRITÉRIO S5 ATINGIDO COM SUCESSO: Latência p95 < 50 ms em todas as operações.")
+        print(
+            f"\n=> CRITÉRIO S5 ATINGIDO COM SUCESSO: Latência p95 < {S5_TARGET_P95_MS} ms em todas as operações."
+        )
     else:
         print("\n=> ALERTA: Algumas operações excederam a meta de 50 ms.")
 
