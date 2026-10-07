@@ -10,7 +10,11 @@ from app.core.errors import (
 from app.core.security import hash_password, verify_password
 from app.db.models import Consultant
 from app.db.repositories.consultant_repo import ConsultantRepository
-from app.schemas.auth import AuthVerifyRequest, AuthVerifyResponse
+from app.schemas.auth import (
+    AuthChangePasswordResponse,
+    AuthVerifyRequest,
+    AuthVerifyResponse,
+)
 from app.schemas.consultant import (
     ConsultantCreateDTO,
     ConsultantDTO,
@@ -117,3 +121,31 @@ class ConsultantService:
             raise InvalidCredentialsError("Credenciais invalidas.")
 
         return AuthVerifyResponse(id=consultant.id, role="consultant")
+
+    def change_password(
+        self,
+        current_password: str,
+        new_password: str,
+        consultant_id: Optional[UUID] = None,
+        email: Optional[str] = None,
+    ) -> AuthChangePasswordResponse:
+        """Atualiza a senha do consultor após validar a senha atual com bcrypt."""
+        consultant = None
+        if consultant_id:
+            consultant = self.repository.get_by_id(consultant_id)
+        elif email:
+            consultant = self.repository.get_by_email(email)
+
+        if not consultant:
+            raise InvalidCredentialsError("Credenciais invalidas.")
+
+        if not verify_password(current_password, consultant.hashed_password):
+            raise InvalidCredentialsError("Credenciais invalidas.")
+
+        new_hashed = hash_password(new_password)
+        self.repository.update_password(consultant.id, new_hashed)
+        return AuthChangePasswordResponse(
+            id=consultant.id,
+            role="consultant",
+            message="Senha atualizada com sucesso.",
+        )

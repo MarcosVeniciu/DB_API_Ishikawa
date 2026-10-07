@@ -121,3 +121,17 @@ class ProducerRepository:
             .order_by(Producer.created_at.asc())
         )
         return list(self.session.execute(stmt).scalars().all())
+
+    def update_password(self, producer_id: UUID, new_hashed_password: str) -> bool:
+        """Atualiza a senha hasheada do produtor no banco de dados."""
+        stmt = (
+            update(Producer)
+            .where(Producer.id == producer_id)
+            .values(
+                hashed_password=new_hashed_password,
+                updated_at=datetime.now(timezone.utc),
+            )
+        )
+        result = self.session.execute(stmt)
+        self.session.commit()
+        return (result.rowcount or 0) > 0
