@@ -18,7 +18,7 @@ class Consultant(Base):
         default=uuid.uuid4,
     )
     nome: Mapped[str] = mapped_column(String(255), nullable=False)
-    email: Mapped[str] = mapped_column(CITEXT, unique=True, index=True, nullable=False)
+    email: Mapped[str] = mapped_column(CITEXT, unique=True, nullable=False)
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
     version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
@@ -54,7 +54,7 @@ class Producer(Base):
         primary_key=True,
         default=uuid.uuid4,
     )
-    email: Mapped[str] = mapped_column(CITEXT, unique=True, index=True, nullable=False)
+    email: Mapped[str] = mapped_column(CITEXT, unique=True, nullable=False)
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
     nome: Mapped[str] = mapped_column(String(255), nullable=False)
     id_fazenda: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
