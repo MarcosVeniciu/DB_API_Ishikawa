@@ -8,7 +8,12 @@ from app.db.session import Base
 
 
 class Consultant(Base):
-    """Modelo ORM para a tabela de consultores."""
+    """Modelo ORM para a tabela de consultores técnicos (`consultants`).
+
+    Armazena credenciais (hash bcrypt), controle de concorrência otimista (version)
+    e mantém o relacionamento 1:N com os produtores atendidos.
+    Ref: Obsidian note [[sdd-db-api-skeleton-consultants]]
+    """
 
     __tablename__ = "consultants"
 
@@ -45,7 +50,12 @@ class Consultant(Base):
 
 
 class Producer(Base):
-    """Modelo ORM para a tabela de produtores rurais."""
+    """Modelo ORM para a tabela de produtores rurais (`producers`).
+
+    Armazena dados cadastrais, credenciais (hash bcrypt), vínculo com consultor (FK),
+    informações agronômicas flexíveis em JSONB e relação 1:1 com diagnósticos.
+    Ref: Obsidian note [[bdd-db-api-producers]]
+    """
 
     __tablename__ = "producers"
 
@@ -105,7 +115,12 @@ class Producer(Base):
 
 
 class DiagnosticResult(Base):
-    """Modelo ORM para a tabela de resultados de diagnósticos."""
+    """Modelo ORM para a tabela de resultados de diagnósticos (`diagnostic_results`).
+
+    Persiste dados brutos de coleta (input_data), parecer diagnósticos e simulações
+    em formato JSONB. Suporta controle estrito de versão para lock otimista (RFC 7807/If-Match).
+    Ref: Obsidian note [[audit-persistencia-resultados]]
+    """
 
     __tablename__ = "diagnostic_results"
 

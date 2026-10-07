@@ -24,7 +24,12 @@ auth_router = APIRouter(
 
 
 class AuthService:
-    """Serviço unificado de verificação de credenciais e atualização de senhas."""
+    """Fachada unificada de verificação de credenciais e atualização de senhas para rotas HTTP v1.
+
+    Roteia as requisições de autenticação e redefinição de credenciais para os serviços de
+    consultor ou produtor conforme o papel especificado (role).
+    Ref: Obsidian note [[sdd-db-api-password-management]]
+    """
 
     def __init__(self, db: Session):
         self.consultant_service = ConsultantService(ConsultantRepository(db))

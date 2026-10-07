@@ -3,7 +3,11 @@ from pydantic import BaseModel, Field
 
 
 class DomainError(Exception):
-    """Base domain exception."""
+    """Exceção base de domínio para erros de negócio e validação da API.
+
+    Encapsula metadados compatíveis com a especificação RFC 7807 (Problem Details).
+    Ref: Obsidian note [[sdd-db-api-skeleton-consultants]]
+    """
 
     def __init__(
         self,
@@ -20,6 +24,11 @@ class DomainError(Exception):
 
 
 class DuplicateEmailError(DomainError):
+    """Exceção levantada quando há tentativa de cadastro com e-mail duplicado (HTTP 409).
+
+    Ref: Obsidian note [[sdd-db-api-skeleton-consultants]]
+    """
+
     def __init__(self, message: str = "E-mail ja cadastrado no sistema"):
         super().__init__(
             message=message,
@@ -30,6 +39,12 @@ class DuplicateEmailError(DomainError):
 
 
 class ConcurrencyConflictError(DomainError):
+    """Exceção para conflito de versão em controle de concorrência otimista (HTTP 412).
+
+    Disparada quando o número de versão informado não coincide com a versão atual no banco.
+    Ref: Obsidian note [[audit-persistencia-resultados]]
+    """
+
     def __init__(
         self,
         message: str = "Conflito de concorrencia: versao do registro desatualizada",
@@ -43,6 +58,11 @@ class ConcurrencyConflictError(DomainError):
 
 
 class NotFoundError(DomainError):
+    """Exceção disparada quando um recurso solicitado não é encontrado no banco (HTTP 404).
+
+    Ref: Obsidian note [[sdd-db-api-skeleton-consultants]]
+    """
+
     def __init__(self, message: str = "Recurso nao encontrado"):
         super().__init__(
             message=message,
@@ -53,6 +73,12 @@ class NotFoundError(DomainError):
 
 
 class InvalidCredentialsError(DomainError):
+    """Exceção disparada em caso de falha de validação de credenciais (HTTP 401).
+
+    Garante proteção contra timing attacks e não vaza detalhes se o e-mail existe.
+    Ref: Obsidian note [[sdd-db-api-password-management]]
+    """
+
     def __init__(self, message: str = "Credenciais invalidas"):
         super().__init__(
             message=message,
@@ -63,6 +89,11 @@ class InvalidCredentialsError(DomainError):
 
 
 class UnauthorizedError(DomainError):
+    """Exceção disparada quando o cabeçalho X-Service-Token está ausente ou inválido (HTTP 401).
+
+    Ref: Obsidian note [[sdd-db-api-skeleton-consultants]]
+    """
+
     def __init__(self, message: str = "Token de servico ausente ou invalido"):
         super().__init__(
             message=message,
@@ -73,6 +104,12 @@ class UnauthorizedError(DomainError):
 
 
 class PreconditionRequiredError(DomainError):
+    """Exceção disparada quando o cabeçalho If-Match é obrigatório mas não foi fornecido (HTTP 428).
+
+    Exigido em operações de mutação sujeitas a concorrência otimista.
+    Ref: Obsidian note [[audit-persistencia-resultados]]
+    """
+
     def __init__(
         self,
         message: str = "Cabecalho If-Match e obrigatorio para atualizar o registro",
@@ -86,7 +123,10 @@ class PreconditionRequiredError(DomainError):
 
 
 class ProblemDetail(BaseModel):
-    """RFC 7807 Problem Details representation."""
+    """Modelo Pydantic para representação padronizada de erros segundo a RFC 7807.
+
+    Ref: Obsidian note [[sdd-db-api-skeleton-consultants]]
+    """
 
     type: str = Field(..., description="URI identificador do tipo do erro")
     title: str = Field(..., description="Resumo legivel do erro")

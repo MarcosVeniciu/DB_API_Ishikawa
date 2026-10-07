@@ -9,7 +9,12 @@ from app.schemas.diagnostic_result import DiagnosticResultDTO, DiagnosticResultS
 
 
 class DiagnosticResultService:
-    """Serviço de aplicação para gestão de resultados de diagnóstico e simulação."""
+    """Serviço de aplicação para persistência e gestão de diagnósticos agronômicos e simulações.
+
+    Implementa validação de existência do produtor, upsert condicional inteligente
+    e controle estrito de concorrência com validação de versão (If-Match / 412 Concurrency Conflict).
+    Ref: Obsidian note [[audit-persistencia-resultados]]
+    """
 
     def __init__(
         self,

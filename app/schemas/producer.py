@@ -5,7 +5,11 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field, SecretStr
 
 
 class ProducerCreateDTO(BaseModel):
-    """Payload de entrada para criação de produtor (POST /v1/producers)."""
+    """Payload de entrada para criação de produtor rural (POST /v1/producers).
+
+    Recebe dados cadastrais, dados agronômicos flexíveis e credencial em texto puro para hashing exclusivo.
+    Ref: Obsidian note [[bdd-db-api-producers]]
+    """
 
     model_config = ConfigDict(extra="forbid")
 
@@ -31,7 +35,9 @@ class ProducerCreateDTO(BaseModel):
 class ProducerUpdateDTO(BaseModel):
     """Payload de entrada para atualização cadastral de produtor (PUT /v1/producers/{id}).
 
+    Permite atualização de nome, fazenda, metadados e vínculo de consultor.
     Nota: email e senha permanecem estritamente imutáveis neste endpoint.
+    Ref: Obsidian note [[bdd-db-api-producers]]
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -49,7 +55,11 @@ class ProducerUpdateDTO(BaseModel):
 
 
 class ProducerDTO(BaseModel):
-    """DTO de saída para produtores — nunca expõe hash ou senha."""
+    """DTO de saída para produtores rurais — nunca expõe hash criptográfico ou senha.
+
+    Retorna metadados cadastrais, JSON agronômico e versão atual para lock otimista.
+    Ref: Obsidian note [[bdd-db-api-producers]]
+    """
 
     model_config = ConfigDict(from_attributes=True)
 

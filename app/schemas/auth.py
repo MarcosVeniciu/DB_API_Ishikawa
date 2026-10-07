@@ -3,7 +3,11 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field, SecretStr
 
 
 class AuthVerifyRequest(BaseModel):
-    """Payload de entrada para verificação segura de credenciais."""
+    """Payload de entrada para verificação segura de credenciais de login.
+
+    Valida o papel informado ('consultant' ou 'producer'), e-mail e senha.
+    Ref: Obsidian note [[sdd-db-api-password-management]]
+    """
 
     model_config = ConfigDict(extra="forbid")
 
@@ -13,14 +17,22 @@ class AuthVerifyRequest(BaseModel):
 
 
 class AuthVerifyResponse(BaseModel):
-    """Resposta com confirmação de identidade do usuário autenticado."""
+    """Resposta com confirmação de identidade do usuário autenticado.
+
+    Retorna o identificador único e papel após validação bem-sucedida de credenciais.
+    Ref: Obsidian note [[sdd-db-api-password-management]]
+    """
 
     id: UUID
     role: str
 
 
 class AuthChangePasswordRequest(BaseModel):
-    """Payload de entrada para atualização de senha de produtores e consultores."""
+    """Payload de entrada para atualização de senha de produtores e consultores.
+
+    Exige a senha atual para validação prévia e nova senha com requisitos de complexidade.
+    Ref: Obsidian note [[sdd-db-api-password-management]]
+    """
 
     model_config = ConfigDict(extra="forbid")
 
@@ -36,7 +48,11 @@ class AuthChangePasswordRequest(BaseModel):
 
 
 class AuthChangePasswordResponse(BaseModel):
-    """Resposta com confirmação de atualização de senha."""
+    """Resposta com confirmação de atualização de senha.
+
+    Retorna o identificador do usuário, perfil e mensagem de sucesso da operação.
+    Ref: Obsidian note [[sdd-db-api-password-management]]
+    """
 
     id: UUID
     role: str

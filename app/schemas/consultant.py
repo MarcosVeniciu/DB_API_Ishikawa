@@ -5,7 +5,11 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field, SecretStr
 
 
 class ConsultantCreateDTO(BaseModel):
-    """Payload de entrada para criação de consultor (POST)."""
+    """Payload de entrada para criação de consultor técnico (POST /v1/consultants).
+
+    Garante integridade de e-mail e recebe a senha em texto puro para hashing exclusivo no serviço.
+    Ref: Obsidian note [[sdd-db-api-skeleton-consultants]]
+    """
 
     model_config = ConfigDict(extra="forbid")
 
@@ -20,7 +24,11 @@ class ConsultantCreateDTO(BaseModel):
 
 
 class ConsultantUpdateDTO(BaseModel):
-    """Payload de entrada para atualização de consultor (PUT)."""
+    """Payload de entrada para atualização cadastral de consultor (PUT /v1/consultants/{id}).
+
+    Permite atualização de nome, preservando e-mail e credenciais imutáveis neste endpoint.
+    Ref: Obsidian note [[sdd-db-api-skeleton-consultants]]
+    """
 
     model_config = ConfigDict(extra="forbid")
 
@@ -28,7 +36,11 @@ class ConsultantUpdateDTO(BaseModel):
 
 
 class ConsultantDTO(BaseModel):
-    """DTO de saída — nunca expõe hash ou senha."""
+    """DTO de saída para consultores técnicos — nunca expõe hash criptográfico ou senha.
+
+    Inclui identificadores de produtores gerenciados e controle de versão otimista.
+    Ref: Obsidian note [[sdd-db-api-skeleton-consultants]]
+    """
 
     model_config = ConfigDict(from_attributes=True)
 

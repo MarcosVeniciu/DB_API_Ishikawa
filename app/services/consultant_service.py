@@ -23,7 +23,12 @@ from app.schemas.consultant import (
 
 
 class ConsultantService:
-    """Serviço com as regras de negócio de consultores e controle de autenticação."""
+    """Serviço de aplicação com as regras de negócio de consultores e gestão de credenciais.
+
+    Orquestra o ciclo de vida dos consultores, criação com hashing seguro (bcrypt),
+    verificação de credenciais em tempo constante, alteração de senhas e controle otimista de concorrência.
+    Ref: Obsidian note [[sdd-db-api-skeleton-consultants]], [[sdd-db-api-password-management]]
+    """
 
     def __init__(self, repository: ConsultantRepository):
         self.repository = repository

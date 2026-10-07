@@ -7,7 +7,12 @@ from app.db.models import Producer
 
 
 class ProducerRepository:
-    """Repositório de persistência para produtores rurais via SQLAlchemy."""
+    """Repositório de persistência e operações de dados para produtores rurais via SQLAlchemy.
+
+    Fornece consultas paginadas, buscas determinísticas por nome/e-mail,
+    gestão de vínculo com consultores e atualização atômica com lock otimista.
+    Ref: Obsidian note [[bdd-db-api-producers]]
+    """
 
     def __init__(self, session: Session):
         self.session = session

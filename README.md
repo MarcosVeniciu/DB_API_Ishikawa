@@ -1,145 +1,199 @@
 # DB_API_Ishikawa
 
-Serviço dedicado de **persistência e validação de credenciais** do ecossistema Educampo Ishikawa. Expõe uma API REST interna (`/v1`) cujo contrato espelha 1:1 as interfaces `IProducerRepository`, `IConsultantRepository` e `IDiagnosticResultRepository` da `API_Ishikawa_Educampo`.
+> [!NOTE]
+> **Visão de Negócio & Propósito:**
+> Microsserviço dedicado de **persistência relacional e validação de credenciais** do Ecossistema Educampo Ishikawa. Ele isola a camada de dados da aplicação principal (`API_Ishikawa_Educampo`), garantindo persistência durável em nuvem via **Supabase (PostgreSQL 16 gerenciado)**, integridade referencial estrita, controle otimista de concorrência e autoridade exclusiva sobre hashes de senhas.
+>
+> *Ref: Decisões arquiteturais registradas em [[2026-10-07-supabase-managed-postgres-and-credential-ownership]] e [[sdd-db-api-ishikawa]].*
 
-**Stack:** FastAPI · SQLAlchemy 2.0 · Alembic · Pydantic v2 · PostgreSQL 16 · bcrypt · uv
+---
 
-## Status
+## Tech Stack
 
-| Fase | Conteúdo | Estado |
-|---|---|---|
-| F1 | Skeleton, consultores, `POST /v1/auth/verify` | ✅ Concluída |
-| F2 | Produtores, `producers_managed` derivado, auth de produtor | ✅ Concluída |
-| F3 | Resultados de diagnóstico (`/v1/diagnostic-results`) com lock otimista | ✅ Concluída |
-| F4 | Seed idempotente, hardening Supabase (RLS, Supavisor) e baseline p95 | ✅ Concluída |
+* **Core:** Python 3.12+ · FastAPI · Pydantic v2 · uv
+* **Banco de Dados & ORM:** PostgreSQL 16 · SQLAlchemy 2.0 (async/sync pools) · Alembic · psycopg3
+* **Segurança:** bcrypt (armazenamento exclusivo de hashes) · Autenticação interna via cabeçalho `X-Service-Token` · Row Level Security (RLS)
+* **Qualidade & Testes:** pytest · pytest-cov · httpx · Testcontainers (PostgreSQL real para testes de integração)
 
-Especificação completa: [feature_spec_db_api_ishikawa.md](./feature_spec_db_api_ishikawa.md) · Épico: [epic_db_api_ishikawa_service.md](./epic_db_api_ishikawa_service.md) · Roadmap: [feature_roadmap_persistencia_incremental.md](./feature_roadmap_persistencia_incremental.md) · [Guia de Consumo para a API Ishikawa](./docs/client_integration_guide.md)
+---
 
-## Arquitetura
+## Arquitetura & Como Funciona a API
+
+A `DB_API_Ishikawa` não atende diretamente usuários finais nem frontends públicos. Ela atua como a **única camada de acesso ao banco relacional**, servindo exclusivamente à `API_Ishikawa_Educampo` por meio de uma rede interna protegida por token de serviço.
 
 ```mermaid
-graph LR
-    FE["Site"] --> API["API_Ishikawa_Educampo"]
-    API -->|"REST + X-Service-Token"| DB["DB_API_Ishikawa"]
-    DB --> PG[("PostgreSQL")]
-    subgraph "Ambientes"
-        L["Dev / CI: Docker (postgres:16-alpine)"]
-        S["Staging / Prod: Supabase (Postgres gerenciado)"]
-    end
-    PG -.-> L
-    PG -.-> S
+graph TD
+    User["Produtor / Consultor"] --> Frontend["Portal Web Educampo"]
+    Frontend -->|"HTTPS / JWT"| MainAPI["API_Ishikawa_Educampo\n(Regras de Negócio, IA, Sessão JWT)"]
+    MainAPI -->|"REST / X-Service-Token"| DBAPI["DB_API_Ishikawa\n(Persistência, Hashes bcrypt, Lock Otimista)"]
+    DBAPI -->|"SSL / Supavisor Pooler (Porta 6543)"| Supabase[("Supabase Cloud\nPostgreSQL 16 Gerenciado")]
+    AlembicCLI["Alembic CLI / Migrações"] -->|"Session Mode (Porta 5432)"| Supabase
 ```
 
-| Componente | Responsabilidade |
-|---|---|
-| `API_Ishikawa_Educampo` | Regras de negócio e IA, sessão (JWT) e autorização de papéis |
-| **`DB_API_Ishikawa`** | Persistência, integridade, **hash bcrypt e verificação de credenciais**, lock otimista |
-| PostgreSQL | Armazenamento. Docker local em dev/CI; **Supabase apenas como Postgres gerenciado** em staging/prod (sem SDK, Auth, Storage ou Realtime) |
+### Princípios de Funcionamento
 
-Trocar de provedor de banco = trocar `DATABASE_URL`.
+1. **Separação de Responsabilidades (BFF vs. Persistência):**
+   * A `API_Ishikawa_Educampo` processa a inteligência de negócios, diagnósticos e emite tokens JWT para o navegador.
+   * A `DB_API_Ishikawa` é a única autoridade que grava, consulta e atualiza as entidades relacionais (Consultores, Produtores e Resultados de Diagnósticos).
 
-### Credenciais e login
+2. **Guardiã de Credenciais e Segurança de Login:**
+   * Senhas são tratadas unicamente como hashes criptográficos salgados com **bcrypt**. O campo `hashed_password` **nunca** é retornado em respostas da API.
+   * Na autenticação, a `API_Ishikawa_Educampo` delega a validação para o endpoint interno `POST /v1/auth/verify`. A `DB_API_Ishikawa` valida a credencial em tempo constante contra ataques de temporização e retorna apenas a confirmação e perfil do usuário.
 
-- Senhas são salvas apenas como hash bcrypt; `hashed_password` **nunca** aparece em respostas.
-- Login: a API Ishikawa chama `POST /v1/auth/verify` com `{email, password, role}` e recebe `{id, role}` (200) ou 401 idêntico para e-mail inexistente e senha errada.
-- Cadastro: `POST /v1/consultants` cria consultores; um consultor cadastra produtores via `POST /v1/producers` (valida `consultant_id`). A senha é imutável no `PUT /v1/producers/{id}`.
+3. **Controle Otimista de Concorrência (Lock Otimista):**
+   * Em recursos concorrentes (como resultados de diagnósticos), cada registro possui uma coluna de versão numérica sequencial.
+   * As atualizações exigem o envio do cabeçalho `If-Match: <versao>`. Caso outro consultor tenha salvo alterações simultaneamente, a API rejeita a requisição com **HTTP 412 Precondition Failed**, prevenindo perda silenciosa de dados.
 
-## Endpoints
+4. **Padronização RFC 7807:**
+   * Todas as falhas e erros de validação retornam no padrão internacional `application/problem+json`, assegurando previsibilidade e facilidade de depuração para clientes da API.
 
-Todas as rotas `/v1` exigem o header `X-Service-Token`. Erros seguem RFC 7807 (`application/problem+json`). Listagens aceitam `limit` (máx. 200) e `offset` e devolvem `X-Total-Count`. Atualizações usam `If-Match: <version>` (412 em conflito).
+5. **Estratégia Híbrida de Ambientes:**
+   * **Desenvolvimento Local & CI:** Contêiner Docker local (`postgres:16-alpine`) e `testcontainers[postgres]`, permitindo desenvolvimento rápido, offline e testes isolados sem custos de nuvem.
+   * **Staging & Produção:** Conexão direta ao PostgreSQL 16 gerenciado no Supabase através do pooler Supavisor.
 
-| Recurso | Rotas |
-|---|---|
-| Consultores | `POST/GET /v1/consultants`, `GET/PUT /v1/consultants/{id}` |
-| Produtores | `POST/GET /v1/producers`, `GET/PUT/DELETE /v1/producers/{id}` (filtros `email`, `nome`) |
-| Diagnósticos | `GET/PUT /v1/diagnostic-results/{producer_id}` (upsert com lock otimista) |
-| Auth | `POST /v1/auth/verify` |
-| Saúde | `GET /health/live`, `GET /health/ready` |
+---
 
-Em desenvolvimento a documentação interativa fica em `/docs`.
+## Resumo dos Endpoints (`/v1`)
 
-## Configuração
+Todas as rotas sob o prefixo `/v1` requerem o cabeçalho `X-Service-Token`. Em ambiente de desenvolvimento, a interface interativa Swagger fica disponível em `/docs`.
 
-Copie `.env.example` para `.env`:
+| Domínio | Método e Rota | Descrição |
+|---|---|---|
+| **Saúde** | `GET /health/live` | Verificação de liveness do processo da API |
+| **Saúde** | `GET /health/ready` | Verificação de readiness e conectividade ativa com o PostgreSQL |
+| **Autenticação** | `POST /v1/auth/verify` | Validação de credenciais (email/senha/papel) contra hash bcrypt |
+| **Consultores** | `POST /v1/consultants` | Criação de consultor com hashing seguro de senha |
+| **Consultores** | `GET /v1/consultants` | Listagem paginada (`limit`, `offset`) com header `X-Total-Count` |
+| **Consultores** | `GET /v1/consultants/{id}` | Busca de consultor por ID com contagem derivada de produtores |
+| **Consultores** | `PUT /v1/consultants/{id}` | Atualização de dados cadastrais |
+| **Produtores** | `POST /v1/producers` | Cadastro de produtor vinculado obrigatoriamente a um consultor |
+| **Produtores** | `GET /v1/producers` | Listagem com filtros por `email` e `nome`, suporte a paginação |
+| **Produtores** | `GET /v1/producers/{id}` | Detalhes do produtor |
+| **Produtores** | `PUT /v1/producers/{id}` | Atualização de produtor (senha é imutável via PUT cadastral) |
+| **Produtores** | `DELETE /v1/producers/{id}` | Exclusão de produtor e dados associados |
+| **Diagnósticos** | `GET /v1/diagnostic-results/{producer_id}` | Recupera o resultado de diagnóstico mais recente e versão |
+| **Diagnósticos** | `PUT /v1/diagnostic-results/{producer_id}` | Upsert com lock otimista (`If-Match: <versao>`) |
 
-| Variável | Descrição |
-|---|---|
-| `ENVIRONMENT` | `development` / `production` (em produção `/docs` fica desabilitado) |
-| `API_V1_STR` | Prefixo das rotas (padrão `/v1`) |
-| `DATABASE_URL` | URL SQLAlchemy (`postgresql+psycopg://...`) |
-| `SERVICE_TOKEN` | Segredo compartilhado com a API Ishikawa. **Troque em produção** |
-| `SEED_ON_STARTUP` | `true`/`false` (importa dados mock no startup se ativado) |
-| `SEED_DATA_PATH` | Caminho do JSON de seed (padrão `app/resources/test_data/farms.json`) |
-| `DB_POOL_SIZE` | Tamanho do pool SQLAlchemy (padrão `5`) |
-| `DB_MAX_OVERFLOW` | Conexões extras de overflow (padrão `10`) |
-| `DB_PREPARE_THRESHOLD` | `None` para Supavisor em *transaction mode*, ou inteiro |
+---
 
-## Seed de Dados Mock (farms.json)
+## Configuração de Ambiente
 
-O seed pode ser executado manualmente ou no startup da API:
+Crie o arquivo `.env` baseado no `.env.example`:
 
-```bash
-# Execução manual via CLI
-python -m app.seed.import_farms
+| Variável | Descrição | Exemplo / Padrão |
+|---|---|---|
+| `ENVIRONMENT` | Ambiente de execução (`development` ou `production`) | `development` |
+| `API_V1_STR` | Prefixo global dos endpoints de negócio | `/v1` |
+| `DATABASE_URL` | String de conexão SQLAlchemy psycopg3 | `postgresql+psycopg://...` |
+| `SERVICE_TOKEN` | Token secreto compartilhado exigido no `X-Service-Token` | *Token forte e aleatório* |
+| `SEED_ON_STARTUP` | Executa importação de dados mock no startup se ativado | `false` |
+| `SEED_DATA_PATH` | Caminho do JSON de dados iniciais | `app/resources/test_data/farms.json` |
+| `DB_POOL_SIZE` | Quantidade de conexões permanentes no pool SQLAlchemy | `5` |
+| `DB_MAX_OVERFLOW` | Conexões transitórias adicionais suportadas | `10` |
+| `DB_PREPARE_THRESHOLD` | `None` para Supavisor em *transaction mode*, ou inteiro em dev | `None` |
 
-# Ou defina SEED_ON_STARTUP=true no .env para popular na subida do container
-```
+---
 
-A importação é **estritamente idempotente** (`ON CONFLICT DO NOTHING`), garantindo que execuções repetidas não dupliquem dados.
+## Como Executar Localmente
 
-## Baseline de Latência (p95 < 50ms)
+### Opção 1: Com Docker Compose (API + PostgreSQL Local)
 
-Aferição automatizada das métricas de tempo de resposta em rede interna (Critério S5):
-
-```bash
-python scripts/benchmark_latency.py --iterations 50
-```
-
-## Executando localmente
-
-Com Docker (Postgres + API; API em `http://localhost:8002`, Postgres em `localhost:5433`):
+Inicia o PostgreSQL na porta `5433` (com volume persistente local) e a API na porta `8002`:
 
 ```bash
 docker compose up --build
 ```
 
-Sem Docker para a API (precisa de um Postgres acessível em `DATABASE_URL`):
+### Opção 2: Com Gerenciador `uv` (Execução Nativa)
+
+Requer um banco PostgreSQL ativo configurado no `.env`:
 
 ```bash
+# 1. Instalar dependências
 uv sync
+
+# 2. Executar migrações do banco
 alembic upgrade head
-uvicorn app.main:app --reload --port 8001
+
+# 3. Iniciar a API em modo reload
+uv run uvicorn app.main:app --reload --port 8001
 ```
 
-## Testes
+---
 
-Os testes de integração usam Postgres real via testcontainers (requer Docker em execução).
+## Testes e Validação
+
+A suíte de testes inclui testes unitários isolados e testes de integração de ponta a ponta que sobem instâncias reais de PostgreSQL em contêineres temporários via Testcontainers:
 
 ```bash
+# Executar todos os testes
 uv run pytest
+
+# Executar com relatório de cobertura
+uv run pytest --cov=app --cov-report=term-missing
 ```
+
+### Seed de Dados Idempotente
+
+Para popular o banco com dados de teste (`farms.json`):
+
+```bash
+uv run python -m app.seed.import_farms
+```
+
+> A rotina utiliza cláusulas de idempotência (`ON CONFLICT DO NOTHING`), garantindo que execuções sucessivas não gerem duplicidade nem sobrescrevam registros existentes.
+
+### Baseline de Latência (p95 < 50ms)
+
+Para validar a performance de resposta e tempo de execução das consultas:
+
+```bash
+uv run python scripts/benchmark_latency.py --iterations 50
+```
+
+---
 
 ## Deploy: Render + Supabase
 
-1. No Supabase, copie a connection string do **pooler (Supavisor)** (o host direto é IPv6 e o Render não tem saída IPv6).
-2. No Render, defina `DATABASE_URL=postgresql+psycopg://postgres.<ref>:<senha>@aws-0-<regiao>.pooler.supabase.com:6543/postgres?sslmode=require` e um `SERVICE_TOKEN` forte.
-3. Rode as migrações pelo modo *session* do pooler (porta `5432`): `alembic upgrade head`. A migração `004_enable_rls` ativa Row Level Security em todas as tabelas (D19).
-4. O pooler opera com `prepare_threshold=None` e limites controlados de pool.
+1. **Host do Banco:** Utilize a connection string do **pooler Supavisor** do Supabase (`aws-0-[regiao].pooler.supabase.com:6543`), que oferece compatibilidade IPv4 (necessária para planos padrão do Render) e gerenciamento otimizado de pooling.
+2. **Migrações:** Execute as migrações do Alembic apontando para a porta `5432` (Session Mode do pooler):
+   ```bash
+   alembic upgrade head
+   ```
+3. **Segurança de Dados (RLS):** As migrações habilitam **Row Level Security (RLS)** em todas as tabelas públicas, bloqueando acessos não autorizados diretos através de chaves públicas ou anônimas do Supabase.
 
-## Estrutura
+---
 
-```text
-app/
-├── main.py          # FastAPI, lifespan com seed condicional, handlers RFC 7807
-├── core/            # config, security (bcrypt, X-Service-Token), errors
-├── api/             # health.py e v1/ (auth, consultants, producers, diagnostic_results)
-├── schemas/         # DTOs Pydantic
-├── services/        # regras de negócio e concorrência
-├── seed/            # import_farms.py (módulo e CLI de seed)
-├── resources/       # test_data/farms.json
-└── db/              # models, session (pooling/Supavisor), repositories
-alembic/             # migrações (001 consultores, 002 produtores, 003 diagnósticos, 004 RLS)
-scripts/             # benchmark_latency.py
-docs/                # client_integration_guide.md
-tests/               # unit/ e integration/ (testcontainers)
-```
+## Onde você precisa ter atenção no futuro?
+
+Esta seção resume os cuidados arquiteturais e operacionais fundamentais para manter a estabilidade do sistema e a integridade dos dados ao longo do ciclo de vida da aplicação:
+
+### 1. Preservação dos Dados no Supabase vs. Deploys da API
+* **Segurança Total no Código:** O banco de dados em nuvem no Supabase está **completamente desacoplado** do contêiner da `DB_API_Ishikawa`. Alterar rotas, refatorar serviços, ajustar modelos Pydantic ou fazer novos deploys no Render **não apaga nem afeta** nenhum dado já gravado no Supabase.
+* **Ciclo de Vida Independente:** Reiniciar a API ou subir uma nova versão não toca nos discos persistentes do Supabase nem nos backups automáticos gerenciados pela infraestrutura da nuvem.
+
+### 2. Evolução de Schema e Migrações no Alembic
+* **Migrações Incrementais (Aditivas):** Ao evoluir o sistema, criar novas tabelas (`op.create_table`) ou adicionar novas colunas (`op.add_column(..., nullable=True)`) é uma operação 100% segura que preserva todos os registros anteriores.
+* **Cuidado Crítico com Migrações Destrutivas:** O Alembic executará qualquer instrução enviada a ele. **Nunca** crie ou execute migrações contendo `op.drop_table()` ou `op.drop_column()` em produção sem antes realizar um backup manual e validar se há dependências ativas.
+* **Porta de Execução do Alembic:** O Supavisor opera em dois modos:
+  * **Porta 6543 (Transaction Mode):** Usada pela API em tempo de execução para alta concorrência de queries. Não suporta transações de alteração de schema DDL com prepared statements.
+  * **Porta 5432 (Session Mode):** Deve ser utilizada **obrigatoriamente** para rodar `alembic upgrade head`.
+
+### 3. Idempotência em Seeds e Scripts de Carga
+* O script `import_farms.py` foi projetado para ser estritamente idempotente. Caso você desenvolva novos scripts de carga, migração de dados ou rotinas de manutenção, utilize sempre verificações de existência prévia (`SELECT` antes de inserir ou cláusulas `ON CONFLICT DO NOTHING / UPDATE`) para evitar duplicidade de cadastros de consultores ou sobreescrita acidental de diagnósticos de produtores.
+
+### 4. Gestão de Conexões e Pooler Supavisor
+* Como o Supabase opera em um ambiente multi-tenant com limites de conexões simultâneas, mantenha sempre:
+  * `DB_POOL_SIZE` baixo (padrão `5`) e `DB_MAX_OVERFLOW` contido (padrão `10`).
+  * `DB_PREPARE_THRESHOLD=None` nas configurações do psycopg quando conectado via Supavisor em Transaction Mode, evitando erros de prepared statements entre diferentes conexões reaproveitadas pelo pooler.
+
+### 5. Políticas de Row Level Security (RLS)
+* Todas as tabelas públicas (`consultants`, `producers`, `diagnostic_results`, `alembic_version`) possuem RLS ativado sem permissões anônimas.
+* Caso adicione novas tabelas no futuro via Alembic, lembre-se de sempre incluir na migração a instrução para ativar o RLS:
+  ```python
+  op.execute("ALTER TABLE nome_da_tabela ENABLE ROW LEVEL SECURITY;")
+  ```
+  Isso garante que a tabela não fique exposta caso as chaves públicas da API do Supabase venham a ser utilizadas em outros serviços.
+
+### 6. Contrato de Confidencialidade de Credenciais
+* A `DB_API_Ishikawa` deve continuar sendo a **única detentora** dos hashes de senha. Nunca altere schemas de saída Pydantic para incluir o campo de hash e nunca trafegue credenciais em logs de aplicação ou parâmetros de URL (`query params`).
