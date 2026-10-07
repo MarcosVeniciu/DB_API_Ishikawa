@@ -17,8 +17,9 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# Dynamic database URL from settings if not already provided
-if not config.get_main_option("sqlalchemy.url"):
+# Dynamic database URL from settings if not explicitly provided
+raw_url = config.get_main_option("sqlalchemy.url")
+if not raw_url or not raw_url.strip():
     config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
 
 target_metadata = Base.metadata
