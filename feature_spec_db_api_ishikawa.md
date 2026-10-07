@@ -4,7 +4,7 @@
 > **Complementa:** [feature_roadmap_persistencia_incremental.md](./feature_roadmap_persistencia_incremental.md)
 > **Data:** 2026-10-06 · **Revisado:** 2026-10-07 (arquitetura híbrida Docker local + Supabase)
 > **Obsidian SDD:** `[[sdd-db-api-ishikawa]]`
-> **Status:** 🚧 Em implementação — F1 (consultores + auth) ✅ · F2 (produtores) ✅ · F3 (resultados de diagnóstico) 🔄 em planejamento · F4 (seed + hardening + deploy Supabase) ⏳
+> **Status:** 🏁 Concluído e Auditado — F1 (consultores + auth) ✅ · F2 (produtores) ✅ · F3 (resultados de diagnóstico) ✅ · F4 (seed + hardening + deploy Supabase) ✅ — 100% integradas em `develop` e auditadas via `/review`
 > **Escopo:** Implementação do `DB_API_Ishikawa`. A `API_Ishikawa_Educampo` **não muda** nesta épica (adapters `Http*` ficam para a épica seguinte).
 
 ---
@@ -366,10 +366,10 @@ graph LR
 
 | Fase | Conteúdo | Estado |
 |---|---|---|
-| F1 | Skeleton, consultores, `auth/verify` | ✅ Implementada |
-| F2 | Produtores, `producers_managed`, auth de produtor | ✅ Implementada |
-| F3 | `diagnostic_results` (branch `feature/db-api-diagnostic-results`) | 🔄 Planejamento |
-| F4 | Seed, hardening, baseline p95, deploy Supabase (§13.2–13.3) | ⏳ Pendente |
+| F1 | Skeleton, consultores, `auth/verify` | ✅ Concluída e mesclada em develop |
+| F2 | Produtores, `producers_managed`, auth de produtor | ✅ Concluída e mesclada em develop |
+| F3 | `diagnostic_results` (branch `feature/db-api-diagnostic-results`) | ✅ Concluída e mesclada em develop |
+| F4 | Seed, hardening, baseline p95, deploy Supabase (§13.2–13.3) | ✅ Concluída e mesclada em develop |
 
 ---
 
