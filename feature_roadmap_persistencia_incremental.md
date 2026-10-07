@@ -6,7 +6,7 @@
 > **Status:** Camada de persistência mock implementada (ver código) · Persistência real especificada em [feature_spec_db_api_ishikawa.md](./feature_spec_db_api_ishikawa.md)
 
 > [!NOTE]
-> **Estado atual (2026-10-06):** `IProducerRepository` e `IDiagnosticResultRepository` usam **Redis** (com fallback in-memory na inicialização); `IConsultantRepository` usa in-memory. O Redis é dívida técnica — ADR `2026-08-13-redis-as-transient-storage-pending-real-db`. Especificação do banco real em `[[sdd-db-api-ishikawa]]` e [feature_spec_db_api_ishikawa.md](./feature_spec_db_api_ishikawa.md). As interfaces abaixo refletem o código real de `app/contracts/repositories.py`.
+> **Estado atual (2026-10-07):** `IProducerRepository` e `IDiagnosticResultRepository` usam **Redis** (com fallback in-memory na inicialização); `IConsultantRepository` usa in-memory. O Redis é dívida técnica — ADR `2026-08-13-redis-as-transient-storage-pending-real-db`. A persistência real é o `DB_API_Ishikawa` (FastAPI + SQLAlchemy + PostgreSQL): **F1 (consultores/auth) e F2 (produtores) implementadas, F3 (resultados) em planejamento, F4 (seed/hardening/deploy) pendente**. Em produção o Postgres é o **Supabase (apenas Postgres gerenciado)**; em dev/CI é Docker. O DB_API é dono das credenciais (bcrypt + `POST /v1/auth/verify`); a API Ishikawa emite o JWT. Detalhes em `[[sdd-db-api-ishikawa]]` e [feature_spec_db_api_ishikawa.md](./feature_spec_db_api_ishikawa.md) (§13). As interfaces abaixo refletem o código real de `app/contracts/repositories.py`.
 
 ---
 
@@ -66,8 +66,8 @@ graph TB
         SEED["Seed: farms.json"]
     end
 
-    subgraph "Futuro: DB_API_Ishikawa"
-        DB["PostgreSQL / MongoDB"]
+    subgraph "DB_API_Ishikawa (em implementação)"
+        DB["FastAPI + PostgreSQL (Docker local / Supabase em prod)"]
     end
 
     R1 --> IPR
@@ -447,9 +447,9 @@ graph LR
 > Especificação completa em [feature_spec_db_api_ishikawa.md](./feature_spec_db_api_ishikawa.md) · Repositório: https://github.com/MarcosVeniciu/DB_API_Ishikawa
 
 1. **Interfaces ABC são o contrato** — O DB_API expõe endpoints 1:1 com os métodos acima (com ajustes de segurança e paginação descritos na spec)
-2. **Schema de persistência** — PostgreSQL; modelo de dados na spec
+2. **Schema de persistência** — PostgreSQL; modelo de dados na spec. Docker em dev/CI; **Supabase como Postgres gerenciado em staging/prod** (sem SDK/Auth do Supabase)
 3. **Granularidade do diff** — Explorar mapeamento a nível de fatores de impacto (dentro de cada indicador) pode reduzir ainda mais o reprocessamento. Registrar como ADR
-4. **Hash de senhas** — Passa a ser responsabilidade do DB_API (bcrypt); o hash nunca trafega de volta
+4. **Hash de senhas e credenciais** — Responsabilidade do DB_API (bcrypt); o hash nunca trafega de volta. Login via `POST /v1/auth/verify`; a API Ishikawa apenas emite o JWT e autoriza papéis (consultor cadastra produtor)
 5. **Seed data** — `farms.json` vira script de import idempotente no DB_API
 
 ---

@@ -72,6 +72,19 @@ class UnauthorizedError(DomainError):
         )
 
 
+class PreconditionRequiredError(DomainError):
+    def __init__(
+        self,
+        message: str = "Cabecalho If-Match e obrigatorio para atualizar o registro",
+    ):
+        super().__init__(
+            message=message,
+            status_code=428,
+            error_type="precondition-required",
+            title="Pre-condicao Obrigatoria",
+        )
+
+
 class ProblemDetail(BaseModel):
     """RFC 7807 Problem Details representation."""
 
