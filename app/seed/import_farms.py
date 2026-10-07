@@ -32,7 +32,12 @@ MOCK_EMAIL_DOMAIN = "@educampo.mock"
 
 
 class SeedSummaryDTO(BaseModel):
-    """Estatísticas resultantes da execução de seed."""
+    """Estatísticas e métricas resultantes da execução de seed de dados.
+
+    Registra a quantidade de consultores inseridos, produtores cadastrados/ignorados,
+    total de fazendas processadas e a duração da operação em milissegundos.
+    Ref: Obsidian note [[bdd-db-api-seed-hardening]]
+    """
 
     consultants_inserted: int = Field(default=0, ge=0)
     producers_inserted: int = Field(default=0, ge=0)

@@ -24,7 +24,12 @@ from app.schemas.producer import (
 
 
 class ProducerService:
-    """Serviço com regras de negócio e autenticação para produtores rurais."""
+    """Serviço de aplicação com regras de negócio, persistência e autenticação de produtores rurais.
+
+    Gerencia o cadastro com hash seguro (bcrypt), consultas paginadas, vinculação com consultores,
+    busca determinística por nome, verificação e alteração de senha e lock otimista.
+    Ref: Obsidian note [[bdd-db-api-producers]], [[sdd-db-api-password-management]]
+    """
 
     def __init__(
         self,

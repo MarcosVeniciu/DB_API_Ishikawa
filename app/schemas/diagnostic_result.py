@@ -5,7 +5,11 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class DiagnosticResultSaveDTO(BaseModel):
-    """Payload de entrada para salvar/atualizar diagnóstico (PUT /v1/diagnostic-results/{producer_id})."""
+    """Payload de entrada para salvar ou atualizar diagnóstico agronômico e simulação.
+
+    Utilizado em PUT /v1/diagnostic-results/{producer_id}.
+    Ref: Obsidian note [[audit-persistencia-resultados]]
+    """
 
     model_config = ConfigDict(extra="forbid")
 
@@ -15,7 +19,11 @@ class DiagnosticResultSaveDTO(BaseModel):
 
 
 class DiagnosticResultDTO(BaseModel):
-    """DTO de saída para diagnóstico persistido."""
+    """DTO de saída para resultado de diagnóstico e simulação persistidos.
+
+    Contém a versão atual do registro para suporte a lock otimista (If-Match / RFC 7807).
+    Ref: Obsidian note [[audit-persistencia-resultados]]
+    """
 
     model_config = ConfigDict(from_attributes=True)
 

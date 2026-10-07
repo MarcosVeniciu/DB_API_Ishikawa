@@ -8,7 +8,12 @@ from app.schemas.diagnostic_result import DiagnosticResultSaveDTO
 
 
 class DiagnosticResultRepository:
-    """Repositório de persistência para resultados de diagnóstico via SQLAlchemy."""
+    """Repositório de persistência para resultados de diagnósticos via SQLAlchemy.
+
+    Gerencia o ciclo de vida dos diagnósticos (input_data, parecer, simulação),
+    executando atualizações atômicas com verificação estrita de versão (lock otimista).
+    Ref: Obsidian note [[audit-persistencia-resultados]]
+    """
 
     def __init__(self, session: Session):
         self.session = session

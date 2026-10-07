@@ -7,7 +7,12 @@ from app.db.models import Consultant, Producer
 
 
 class ConsultantRepository:
-    """Repositório de persistência para consultores via SQLAlchemy."""
+    """Repositório de persistência e operações de dados para consultores via SQLAlchemy.
+
+    Fornece operações de CRUD, paginação, lookup de e-mail (CITEXT) e atualização
+    atômica com controle de versão para lock otimista.
+    Ref: Obsidian note [[sdd-db-api-skeleton-consultants]]
+    """
 
     def __init__(self, session: Session):
         self.session = session

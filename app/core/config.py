@@ -3,6 +3,13 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
+    """Configurações globais e variáveis de ambiente do serviço DB_API_Ishikawa.
+
+    Gerencia parâmetros de conexão com o banco (Supabase/PostgreSQL local),
+    tokens de autenticação de serviço, pools de conexão e flags de inicialização/seed.
+    Ref: Obsidian note [[sdd-db-api-skeleton-consultants]]
+    """
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
