@@ -3,8 +3,8 @@ type: epic
 project: "DB_API_Ishikawa"
 epic_slug: "db-api-ishikawa-service"
 created_at: "2026-10-06"
-updated_at: "2026-10-06"
-status: draft
+updated_at: "2026-10-07"
+status: in-progress
 owner: "MarcosVeniciu"
 base_branch: develop
 tags:
@@ -25,7 +25,15 @@ A `API_Ishikawa_Educampo` persiste dados de forma simulada: Redis (produtores, r
 - Consultores e produtores (dados de cadastro, login e diagnóstico).
 
 ### Desired Observable Outcome
-Um serviço `DB_API_Ishikawa` independente, em Docker, com PostgreSQL 16 e API REST `/v1` cujo contrato espelha 1:1 as interfaces ABC atuais (`IProducerRepository`, `IConsultantRepository`, `IDiagnosticResultRepository`), pronto para ser consumido sem alterar services/rotas/worker da API Ishikawa.
+Um serviço `DB_API_Ishikawa` independente, em Docker, com API REST `/v1` cujo contrato espelha 1:1 as interfaces ABC atuais (`IProducerRepository`, `IConsultantRepository`, `IDiagnosticResultRepository`), pronto para ser consumido sem alterar services/rotas/worker da API Ishikawa. O PostgreSQL 16 roda em **Docker em dev/CI** e no **Supabase (apenas Postgres gerenciado) em staging/prod**, trocando só a `DATABASE_URL`.
+
+### Status Atual (2026-10-07)
+| Fase | Estado |
+|---|---|
+| F1 Skeleton + Consultores + Auth | ✅ Implementada |
+| F2 Produtores | ✅ Implementada |
+| F3 Resultados de Diagnóstico | 🔄 Planejamento (branch `feature/db-api-diagnostic-results`) |
+| F4 Seed + Hardening + Deploy Supabase | ⏳ Pendente |
 
 ### Epic Success Criteria
 
@@ -37,6 +45,8 @@ Um serviço `DB_API_Ishikawa` independente, em Docker, com PostgreSQL 16 e API R
 | S4 | Seed do `farms.json` é idempotente (2 execuções = mesmo estado) | Teste de integração do import |
 | S5 | Latência p95 < 50 ms por operação na rede Docker interna | Baseline medido por script de carga simples (sem inventar número antes de medir) |
 | S6 | `docker compose up` sobe `postgres` + `db-api` saudáveis (`/health/ready`) | Smoke test no CI |
+| S7 | A mesma imagem do `db-api` roda no Render contra o Supabase mudando apenas `DATABASE_URL`; `alembic upgrade head` aplica o schema | Smoke test em staging |
+| S8 | Tabelas do Supabase com RLS ativo e sem policies (a `anon key` não lê hashes) | Verificação manual/SQL no dashboard |
 
 ---
 
@@ -46,13 +56,17 @@ Um serviço `DB_API_Ishikawa` independente, em Docker, com PostgreSQL 16 e API R
 - Repositório `DB_API_Ishikawa` completo: FastAPI, SQLAlchemy 2.0, Alembic, Pydantic v2, Docker/compose, CI.
 - Recursos: consultants, producers, diagnostic-results, auth/verify, health.
 - Seed idempotente do `farms.json` e consultores mock.
-- Decisões D1–D14 da spec.
+- Decisões D1–D19 da spec (D15–D19: Supabase, auth, ambientes, pooler, RLS).
+- Preparação para Supabase (F4): settings de pool/`prepare_threshold`, migração de RLS, documentação de deploy no Render.
 
 ### Out-of-Scope (Non-Goals)
 - **Migração na `API_Ishikawa_Educampo`** (adapters `Http*`, flag `PERSISTENCE_BACKEND`, fail-fast D14 no lado cliente, remoção do Redis): **épica seguinte** (fases M0–M6 da spec).
 - Suíte de contrato M0 parametrizada (InMemory/Redis/Http) e fix do bug `producers_managed` em `GET /auth/me`: ambos vivem na API Ishikawa → **itens de handoff da épica seguinte** (ver §9).
 - Migração de dados Redis/memória (decisão já tomada: não migrar).
 - `diagnostic_history`, normalização de `dados`, JWT/mTLS, async (spec §9).
+- **Supabase Auth, supabase-py, PostgREST, Storage e Realtime** (D15): Supabase é só Postgres gerenciado; a autenticação continua no DB_API (hash bcrypt) + JWT na API Ishikawa (D16).
+- Supabase CLI local (D17): dev continua em Docker.
+- Troca de senha (senha é imutável no `PUT /v1/producers/{id}`; endpoint dedicado fica para depois — ver `notas.md`).
 
 ### Constraints
 - Contrato REST 1:1 com interfaces ABC; IDs UUID gerados pelo cliente.
@@ -211,9 +225,14 @@ Fatias verticais por recurso sobre um esqueleto mínimo: F1 entrega skeleton + c
 | R3 | `find_by_name` não é único (D-nota §4) | Resultado ambíguo | Retornar o mais antigo; revisitar domínio | Dev |
 | R4 | Meta p95 < 50 ms sem baseline | Critério não verificável | Medir baseline em F4 antes de fixar o alvo | Dev |
 | R5 | Spec DoD pendente: "Decisões D1–D14 revisadas e aprovadas" | Retrabalho de contrato | ✅ Aprovadas em 2026-10-06 via /plan debate | Owner |
+| R6 | Host direto do Supabase é IPv6 no free tier; Render não tem saída IPv6 | Conexão falha em prod | Usar pooler Supavisor (D18) | Dev |
+| R7 | Pooler em modo *transaction* quebra *prepared statements* do psycopg | Erros intermitentes de query | `prepare_threshold=None`; Alembic via modo *session* (porta 5432) | Dev |
+| R8 | Tabelas em `public` expostas pela Data API do Supabase | Vazamento de hashes via `anon key` | RLS sem policies (D19, S8) | Dev |
+| R9 | Free tier do Supabase pausa após ~7 dias inativo | Indisponibilidade | Ping agendado em `/health/ready` ou plano pago | Owner |
+| R10 | Limite de conexões do plano Supabase | Esgotamento do pool | `pool_size` pequeno + pooler | Dev |
 
 ### Blocking Questions for Kickoff
-- Aprovação final das decisões D1–D14 (item aberto do DoD da spec).
+- Nenhuma. (D1–D14 aprovadas; D15–D19 registradas em 2026-10-07.)
 
 ---
 
@@ -223,10 +242,10 @@ Fatias verticais por recurso sobre um esqueleto mínimo: F1 entrega skeleton + c
 
 | ID | Feature | Type | Observable Outcome | Depends On |
 |---|---|---|---|---|
-| F1 | Skeleton + Consultores + Auth | Vertical Slice | Serviço sobe no compose; CRUD de consultores e `auth/verify` funcionam com token, paginação e RFC 7807 | — |
-| F2 | Produtores | Vertical Slice | CRUD de produtores com busca por email/nome, 409/412 e `producers_managed` derivado; `auth/verify` aceita role producer | F1 |
-| F3 | Resultados de Diagnóstico | Vertical Slice | Upsert/consulta de resultado por produtor com 404/412 e cascade | F2 |
-| F4 | Seed idempotente + Hardening | Vertical Slice | `farms.json` importado de forma idempotente; healthchecks, baseline p95 e documentação de consumo | F3 |
+| F1 | Skeleton + Consultores + Auth | Vertical Slice | ✅ Concluída — serviço sobe no compose; CRUD de consultores e `auth/verify` funcionam com token, paginação e RFC 7807 | — |
+| F2 | Produtores | Vertical Slice | ✅ Concluída — CRUD de produtores com busca por email/nome, 409/412 e `producers_managed` derivado; `auth/verify` aceita role producer | F1 |
+| F3 | Resultados de Diagnóstico | Vertical Slice | 🔄 Em planejamento — upsert/consulta de resultado por produtor com 404/412 e cascade | F2 |
+| F4 | Seed idempotente + Hardening + Deploy Supabase | Vertical Slice | `farms.json` importado de forma idempotente; healthchecks, baseline p95, config de pooler/SSL, RLS e doc de deploy Render+Supabase | F3 |
 
 ### Dependency Graph
 
@@ -245,7 +264,7 @@ flowchart TD
 
 - **Branch:** `feature/db-api-skeleton-consultants`
 - **Type:** Vertical Slice
-- **Status:** Planned
+- **Status:** ✅ Done
 - **Objective:** Entregar o serviço executável com as convenções transversais e o primeiro recurso completo.
 - **Demonstrable Outcome:** `docker compose up` sobe API + Postgres; consultores criados/listados/atualizados; login de consultor verificado.
 - **Contributes to:** S1, S2, S3, S6
@@ -391,7 +410,7 @@ flowchart TD
 - **Branch:** `feature/db-api-seed-hardening`
 - **Type:** Vertical Slice
 - **Status:** Planned
-- **Objective:** Fechar o serviço pronto para consumo: seed, saúde, baseline de latência e docs.
+- **Objective:** Fechar o serviço pronto para consumo e para produção: seed, saúde, baseline de latência, configuração para Supabase e docs.
 - **Demonstrable Outcome:** `SEED_ON_STARTUP=true` popula dados mock sem duplicar; readiness confiável.
 - **Contributes to:** S4, S5, S6
 
@@ -399,6 +418,7 @@ flowchart TD
 - `seed/import_farms.py` (mapeamento `id_fazenda → id`, email `{id}@educampo.mock`, `data_cadastro → created_at`) + consultores mock.
 - `ON CONFLICT DO NOTHING`; flag `SEED_ON_STARTUP` (false em prod).
 - `compose` com healthchecks; script de baseline p95; README de consumo (contrato para a épica seguinte).
+- **Supabase (D15–D19):** `DB_PREPARE_THRESHOLD`/`DB_POOL_SIZE` em `config.py` + `session.py`; migração Alembic de RLS; `.env.example` com URLs do pooler; guia de deploy Render + Supabase (spec §13); validação `alembic upgrade head` contra um projeto Supabase de staging.
 
 #### Out of Scope
 - Qualquer alteração na API Ishikawa.
@@ -419,6 +439,8 @@ flowchart TD
 - [ ] Com `SEED_ON_STARTUP=false` nada é importado.
 - [ ] `/health/ready` retorna 503 sem banco e 200 com banco.
 - [ ] Baseline p95 registrado e comparado à meta de 50 ms.
+- [ ] A API sobe contra o Supabase (pooler, SSL) apenas trocando `DATABASE_URL`; migrações aplicam sem erro.
+- [ ] RLS ativo nas 3 tabelas; consulta com `anon key` não retorna linhas.
 
 #### Integration & Rollout
 - **Integration with Existing Code:** N/A: serviço isolado.
@@ -452,9 +474,9 @@ flowchart TD
 - **Legacy Coexistence:** N/A: `API_Ishikawa_Educampo` não é alterada nesta épica.
 - **Data Persistence & Migration:** Alembic para schema; sem migração de dados Redis (decidido). Seed idempotente em F4.
 - **Real Integration Validation:** Postgres real via testcontainers desde F1.
-- **Security & Privacy:** `X-Service-Token`, bcrypt no DB_API, hash nunca exposto, TLS em prod (R2).
+- **Security & Privacy:** `X-Service-Token`, bcrypt no DB_API (D16), hash nunca exposto, TLS em prod (R2), RLS no Supabase (D19), `SERVICE_TOKEN` forte, chaves do Supabase nunca no front.
 - **Observability & Metrics:** `X-Request-ID` propagado em logs; baseline p95 em F4.
-- **Rollout Strategy:** deploy isolado do serviço; sem consumidores até a épica seguinte.
+- **Rollout Strategy:** deploy do serviço no Render (monorepo com API Ishikawa, LLM Router e site) apontando para o Supabase; Postgres em container **não** é usado em produção (efêmero); sem consumidores até a épica seguinte.
 - **Rollback & Data Limitations:** `alembic downgrade`; dados do serviço novo, sem perda de legado.
 - **Post-Launch Cleanup:** N/A.
 - **Handoff para a Épica 2 (API Ishikawa):** (a) suíte de testes de contrato M0 InMemory/Redis/Http, (b) fix do bug `producers_managed` vazio em `GET /auth/me` (independente, pode ser feito antes), (c) adapters `Http*`, flag `PERSISTENCE_BACKEND`, fail-fast D14, M5/M6.
@@ -485,3 +507,4 @@ flowchart TD
 
 ### Decision History & Approved Scope Changes
 - 2026-10-06 — Initial epic blueprint authored. Escopo restrito ao DB_API; migração na API Ishikawa movida para épica seguinte.
+- 2026-10-07 — Adotada arquitetura híbrida: Docker/testcontainers em dev/CI e Supabase como **Postgres gerenciado** em staging/prod (D15, D17); Supabase BaaS/SDK descartado para preservar bcrypt, lock otimista e ausência de lock-in. DB_API é dono das credenciais; API Ishikawa emite JWT (D16). Pooler Supavisor + RLS (D18, D19) adicionados ao escopo da F4. F1 e F2 marcadas como concluídas; F3 em planejamento.

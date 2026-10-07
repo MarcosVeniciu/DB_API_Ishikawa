@@ -2,10 +2,10 @@
 
 > **Projeto:** [`DB_API_Ishikawa`](https://github.com/MarcosVeniciu/DB_API_Ishikawa) (repo pessoal; migração futura para `Educampo-UFV`)
 > **Complementa:** [feature_roadmap_persistencia_incremental.md](./feature_roadmap_persistencia_incremental.md)
-> **Data:** 2026-10-06
+> **Data:** 2026-10-06 · **Revisado:** 2026-10-07 (arquitetura híbrida Docker local + Supabase)
 > **Obsidian SDD:** `[[sdd-db-api-ishikawa]]`
-> **Status:** 📝 Especificação Validada
-> **Escopo:** Apenas especificação. **Nada é implementado** e a `API_Ishikawa_Educampo` **não muda** agora.
+> **Status:** 🚧 Em implementação — F1 (consultores + auth) ✅ · F2 (produtores) ✅ · F3 (resultados de diagnóstico) 🔄 em planejamento · F4 (seed + hardening + deploy Supabase) ⏳
+> **Escopo:** Implementação do `DB_API_Ishikawa`. A `API_Ishikawa_Educampo` **não muda** nesta épica (adapters `Http*` ficam para a épica seguinte).
 
 ---
 
@@ -49,6 +49,11 @@ O Redis já está registrado como **dívida técnica** (ADR `2026-08-13-redis-as
 | D12 | IDs | UUID gerado pelo **cliente** (a API Ishikawa já gera hoje) | Preserva os IDs do seed e os atuais |
 | D13 | Listagens | ✅ Paginação obrigatória `?limit=50&offset=0` (máx. 200) + `X-Total-Count` | Evita carregar a tabela inteira na RAM (DB, rede e API) |
 | D14 | Fallback | ✅ Proibido fora de `ENV=test`/`PERSISTENCE_BACKEND=memory`; fail-fast com retry na inicialização | Ver §8.1 |
+| D15 | Papel do Supabase | ✅ **Apenas PostgreSQL gerenciado** (armazenamento bruto + backups). O `DB_API_Ishikawa` continua sendo o único dono das regras de persistência. Sem `supabase-py`, PostgREST, Supabase Auth, Storage ou Realtime | Zero vendor lock-in: trocar de provedor = trocar `DATABASE_URL`; mantém bcrypt, `version`/`If-Match` e RFC 7807 sob nosso controle |
+| D16 | Dono das credenciais | ✅ `DB_API_Ishikawa` guarda os hashes e verifica logins (`POST /v1/auth/verify`). A `API_Ishikawa_Educampo` gerencia **sessão** (JWT) e **autorização** (ex.: só consultor cadastra produtor) | O hash nunca trafega para fora do DB_API; ver §13.4 |
+| D17 | Ambientes | ✅ **Dev/CI:** Postgres 16 em Docker (`docker-compose.yml`) + testcontainers. **Staging/Prod:** Supabase via `DATABASE_URL`. A Supabase CLI local fica como opção futura, não adotada agora | Mantém a simplicidade do Docker local; Postgres em container no Render é efêmero e arriscado (ver §13.1) |
+| D18 | Conexão com Supabase | ✅ Usar o **pooler Supavisor** (o host direto é IPv6 no free tier e o Render não tem saída IPv6). Migrações Alembic via modo *session*; app via *transaction* com `prepare_threshold=None` no psycopg | Ver §13.2 |
+| D19 | Exposição de dados | ✅ Habilitar **RLS sem policies** em `consultants`, `producers` e `diagnostic_results` no Supabase | Tabelas em `public` ficam expostas pela Data API do Supabase; a `anon key` não deve ler hashes. O DB_API acessa como `postgres`/service role, que ignora RLS. Ver §13.3 |
 
 ---
 
@@ -307,6 +312,67 @@ sequenceDiagram
 
 ---
 
+## 13. Implantação: Docker local + Supabase (D15–D19)
+
+### 13.1 Topologia
+
+```mermaid
+graph LR
+    subgraph "Dev / CI (Docker)"
+        A1["API_Ishikawa"] --> D1["DB_API_Ishikawa"] --> P1[("postgres:16-alpine")]
+    end
+    subgraph "Staging / Prod (Render)"
+        A2["API_Ishikawa + LLM Router + Site"] --> D2["DB_API_Ishikawa"]
+        D2 -->|"SSL + Supavisor"| S[("Supabase Postgres")]
+    end
+```
+
+- **Por que não Postgres em container no Render:** o filesystem é efêmero; deploy/restart apaga o banco sem *Persistent Disk*, e backup por rota manual é frágil.
+- O código **não muda**: só `DATABASE_URL` (já lida por [config.py](./app/core/config.py)).
+
+### 13.2 Configuração de conexão
+
+| Uso | URL | Observação |
+|---|---|---|
+| Local | `postgresql+psycopg://db_user:db_secret_pass@localhost:5433/db_ishikawa` | Compose |
+| App em prod | `postgresql+psycopg://postgres.<ref>:<senha>@aws-0-<regiao>.pooler.supabase.com:6543/postgres?sslmode=require` | Pooler *transaction*; exige `connect_args={"prepare_threshold": None}` |
+| Alembic em prod | mesma host, porta `5432` (pooler *session*) | DDL não deve passar pelo modo *transaction* |
+
+**Mudanças de código previstas (F4):**
+- `app/db/session.py`: aceitar `DB_PREPARE_THRESHOLD`/pool via settings e aplicar `prepare_threshold=None` quando o pooler for *transaction*; `pool_size` pequeno (limite de conexões do plano).
+- `app/core/config.py`: novas variáveis opcionais (`DB_PREPARE_THRESHOLD`, `DB_POOL_SIZE`).
+- `echo` do SQLAlchemy desligado fora de `development` (já é o comportamento atual).
+- Migração `CREATE EXTENSION IF NOT EXISTS citext` continua válida (extensão disponível no Supabase).
+
+### 13.3 Segurança no Supabase
+- Rodar `ALTER TABLE ... ENABLE ROW LEVEL SECURITY` nas três tabelas (migração Alembic dedicada, executada apenas quando o dialeto/ambiente for Supabase).
+- Nunca expor `anon key`/`service role key` no front; o front fala só com a `API_Ishikawa`.
+- `SERVICE_TOKEN` forte em produção (hoje o default é de desenvolvimento) e TLS entre `API_Ishikawa` e `DB_API`.
+- Free tier pausa o projeto após ~7 dias sem atividade: agendar um *ping* em `/health/ready` ou usar plano pago.
+
+### 13.4 Fluxos de credenciais
+
+| Ação | Responsável | Endpoint |
+|---|---|---|
+| Criar consultor (hash bcrypt) | DB_API | `POST /v1/consultants` |
+| Consultor cadastra produtor (valida `consultant_id`, hash bcrypt) | API_Ishikawa → DB_API | `POST /v1/producers` |
+| Login | API_Ishikawa → DB_API | `POST /v1/auth/verify` → 200 `{id, role}` ou 401 idêntico |
+| Emitir JWT / checar papel | API_Ishikawa | — |
+
+> [!NOTE]
+> Pendência registrada em `notas.md`: senha **imutável** no `PUT /v1/producers/{id}`; troca de senha virá em endpoint dedicado de auth (fora do escopo desta épica).
+
+### 13.5 Estado de implementação
+
+| Fase | Conteúdo | Estado |
+|---|---|---|
+| F1 | Skeleton, consultores, `auth/verify` | ✅ Implementada |
+| F2 | Produtores, `producers_managed`, auth de produtor | ✅ Implementada |
+| F3 | `diagnostic_results` (branch `feature/db-api-diagnostic-results`) | 🔄 Planejamento |
+| F4 | Seed, hardening, baseline p95, deploy Supabase (§13.2–13.3) | ⏳ Pendente |
+
+---
+
 ## 9. Evoluções Previstas (fora do escopo inicial)
 - Tabela `diagnostic_history` (append-only) para guardar o histórico de diagnósticos.
 - Normalizar `dados` em colunas tipadas, alinhadas ao `ProducerInput`.
@@ -330,6 +396,8 @@ sequenceDiagram
 | Paginação | ✅ Obrigatória desde o início (D13) |
 | Repositório | ✅ https://github.com/MarcosVeniciu/DB_API_Ishikawa (mover para `Educampo-UFV` depois) |
 | Fallback | ✅ Fail-fast fora de testes (D14) |
+| Supabase | ✅ Somente Postgres gerenciado em staging/prod; Docker local em dev/CI (D15, D17) |
+| Credenciais | ✅ DB_API guarda hash e verifica; API Ishikawa emite JWT (D16) |
 
 ### Pendência independente da migração
 - Bug de `producers_managed` vazio em `GET /auth/me` (§5.2) pode ser corrigido já na API atual, derivando a lista do repositório de produtores.
