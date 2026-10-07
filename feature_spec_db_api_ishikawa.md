@@ -53,7 +53,8 @@ O Redis já está registrado como **dívida técnica** (ADR `2026-08-13-redis-as
 | D16 | Dono das credenciais | ✅ `DB_API_Ishikawa` guarda os hashes e verifica logins (`POST /v1/auth/verify`). A `API_Ishikawa_Educampo` gerencia **sessão** (JWT) e **autorização** (ex.: só consultor cadastra produtor) | O hash nunca trafega para fora do DB_API; ver §13.4 |
 | D17 | Ambientes | ✅ **Dev/CI:** Postgres 16 em Docker (`docker-compose.yml`) + testcontainers. **Staging/Prod:** Supabase via `DATABASE_URL`. A Supabase CLI local fica como opção futura, não adotada agora | Mantém a simplicidade do Docker local; Postgres em container no Render é efêmero e arriscado (ver §13.1) |
 | D18 | Conexão com Supabase | ✅ Usar o **pooler Supavisor** (o host direto é IPv6 no free tier e o Render não tem saída IPv6). Migrações Alembic via modo *session*; app via *transaction* com `prepare_threshold=None` no psycopg | Ver §13.2 |
-| D19 | Exposição de dados | ✅ Habilitar **RLS sem policies** em `consultants`, `producers` e `diagnostic_results` no Supabase | Tabelas em `public` ficam expostas pela Data API do Supabase; a `anon key` não deve ler hashes. O DB_API acessa como `postgres`/service role, que ignora RLS. Ver §13.3 |
+| D19 | Exposição de dados | ✅ Habilitar **RLS com política restritiva (default deny)** em `consultants`, `producers`, `diagnostic_results` e `alembic_version` no Supabase | Tabelas em `public` ficam expostas pela Data API do Supabase; a `anon key` não deve ler hashes. O DB_API acessa como `postgres`/service role, que ignora RLS. Ver §13.3 |
+| D20 | Governança de Índices | ✅ **Deduplicar `email` e reter índices de FK e busca textual** (`ix_producers_consultant_id`, `ix_producers_lower_nome`) | Remoção de índices duplicados de email economiza I/O; retenção dos índices de FK e `lower(nome)` previne table locks, sequential scans e degradação da API em produção (falso positivo de unused index justificado por tráfego inicial). Ver §13.3 |
 
 ---
 
@@ -344,8 +345,10 @@ graph LR
 - `echo` do SQLAlchemy desligado fora de `development` (já é o comportamento atual).
 - Migração `CREATE EXTENSION IF NOT EXISTS citext` continua válida (extensão disponível no Supabase).
 
-### 13.3 Segurança no Supabase
-- Rodar `ALTER TABLE ... ENABLE ROW LEVEL SECURITY` nas três tabelas (migração Alembic dedicada, executada apenas quando o dialeto/ambiente for Supabase).
+### 13.3 Segurança e Governança de Índices no Supabase
+- **Row Level Security (D19):** Tabelas `consultants`, `producers`, `diagnostic_results` e `alembic_version` protegidas por RLS com política explícita de *default deny* (`deny_all_anon_authenticated` com `USING (false)` via migração `006_fix_dup_indexes_and_rls.py`). Acesso via PostgREST/anon key é rejeitado; o `DB_API_Ishikawa` consome via credencial `postgres` com `BYPASSRLS`.
+- **Deduplicação de Índices (D20):** Remoção de índices duplicados `ix_*_email` em favor das constraints `uq_*_email` nativas do PostgreSQL.
+- **Retenção de Índices Estratégicos (D20 - Opção A):** Retenção comprovada de `ix_producers_consultant_id` (prevenção de table locks e suporte a JOINs) e `ix_producers_lower_nome` (suporte a busca determinística por nome em `producer_repo.py`).
 - Nunca expor `anon key`/`service role key` no front; o front fala só com a `API_Ishikawa`.
 - `SERVICE_TOKEN` forte em produção (hoje o default é de desenvolvimento) e TLS entre `API_Ishikawa` e `DB_API`.
 - Free tier pausa o projeto após ~7 dias sem atividade: agendar um *ping* em `/health/ready` ou usar plano pago.
