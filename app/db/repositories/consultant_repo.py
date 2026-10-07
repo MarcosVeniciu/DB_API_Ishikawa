@@ -90,3 +90,17 @@ class ConsultantRepository:
         )
         return list(self.session.execute(stmt).scalars().all())
 
+    def update_password(self, consultant_id: UUID, new_hashed_password: str) -> bool:
+        """Atualiza a senha hasheada do consultor no banco de dados."""
+        stmt = (
+            update(Consultant)
+            .where(Consultant.id == consultant_id)
+            .values(
+                hashed_password=new_hashed_password,
+                updated_at=datetime.now(timezone.utc),
+            )
+        )
+        result = self.session.execute(stmt)
+        self.session.commit()
+        return (result.rowcount or 0) > 0
+

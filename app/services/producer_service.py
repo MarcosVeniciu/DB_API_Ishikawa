@@ -11,7 +11,11 @@ from app.core.security import hash_password, verify_password
 from app.db.models import Producer
 from app.db.repositories.consultant_repo import ConsultantRepository
 from app.db.repositories.producer_repo import ProducerRepository
-from app.schemas.auth import AuthVerifyRequest, AuthVerifyResponse
+from app.schemas.auth import (
+    AuthChangePasswordResponse,
+    AuthVerifyRequest,
+    AuthVerifyResponse,
+)
 from app.schemas.producer import (
     ProducerCreateDTO,
     ProducerDTO,
@@ -145,3 +149,31 @@ class ProducerService:
             raise InvalidCredentialsError("Credenciais invalidas.")
 
         return AuthVerifyResponse(id=producer.id, role="producer")
+
+    def change_password(
+        self,
+        current_password: str,
+        new_password: str,
+        producer_id: Optional[UUID] = None,
+        email: Optional[str] = None,
+    ) -> AuthChangePasswordResponse:
+        """Atualiza a senha do produtor após validar a senha atual com bcrypt."""
+        producer = None
+        if producer_id:
+            producer = self.repository.get_by_id(producer_id)
+        elif email:
+            producer = self.repository.get_by_email(email)
+
+        if not producer:
+            raise InvalidCredentialsError("Credenciais invalidas.")
+
+        if not verify_password(current_password, producer.hashed_password):
+            raise InvalidCredentialsError("Credenciais invalidas.")
+
+        new_hashed = hash_password(new_password)
+        self.repository.update_password(producer.id, new_hashed)
+        return AuthChangePasswordResponse(
+            id=producer.id,
+            role="producer",
+            message="Senha atualizada com sucesso.",
+        )
