@@ -8,12 +8,12 @@ Serviço dedicado de **persistência e validação de credenciais** do ecossiste
 
 | Fase | Conteúdo | Estado |
 |---|---|---|
-| F1 | Skeleton, consultores, `POST /v1/auth/verify` | ✅ Implementada |
-| F2 | Produtores, `producers_managed` derivado, auth de produtor | ✅ Implementada |
-| F3 | Resultados de diagnóstico (`/v1/diagnostic-results`) | 🔄 Em planejamento |
-| F4 | Seed idempotente, hardening, deploy no Supabase | ⏳ Pendente |
+| F1 | Skeleton, consultores, `POST /v1/auth/verify` | ✅ Concluída |
+| F2 | Produtores, `producers_managed` derivado, auth de produtor | ✅ Concluída |
+| F3 | Resultados de diagnóstico (`/v1/diagnostic-results`) com lock otimista | ✅ Concluída |
+| F4 | Seed idempotente, hardening Supabase (RLS, Supavisor) e baseline p95 | ✅ Concluída |
 
-Especificação completa: [feature_spec_db_api_ishikawa.md](./feature_spec_db_api_ishikawa.md) · Épico: [epic_db_api_ishikawa_service.md](./epic_db_api_ishikawa_service.md) · Roadmap: [feature_roadmap_persistencia_incremental.md](./feature_roadmap_persistencia_incremental.md)
+Especificação completa: [feature_spec_db_api_ishikawa.md](./feature_spec_db_api_ishikawa.md) · Épico: [epic_db_api_ishikawa_service.md](./epic_db_api_ishikawa_service.md) · Roadmap: [feature_roadmap_persistencia_incremental.md](./feature_roadmap_persistencia_incremental.md) · [Guia de Consumo para a API Ishikawa](./docs/client_integration_guide.md)
 
 ## Arquitetura
 
@@ -52,6 +52,7 @@ Todas as rotas `/v1` exigem o header `X-Service-Token`. Erros seguem RFC 7807 (`
 |---|---|
 | Consultores | `POST/GET /v1/consultants`, `GET/PUT /v1/consultants/{id}` |
 | Produtores | `POST/GET /v1/producers`, `GET/PUT/DELETE /v1/producers/{id}` (filtros `email`, `nome`) |
+| Diagnósticos | `GET/PUT /v1/diagnostic-results/{producer_id}` (upsert com lock otimista) |
 | Auth | `POST /v1/auth/verify` |
 | Saúde | `GET /health/live`, `GET /health/ready` |
 
@@ -67,7 +68,32 @@ Copie `.env.example` para `.env`:
 | `API_V1_STR` | Prefixo das rotas (padrão `/v1`) |
 | `DATABASE_URL` | URL SQLAlchemy (`postgresql+psycopg://...`) |
 | `SERVICE_TOKEN` | Segredo compartilhado com a API Ishikawa. **Troque em produção** |
-| `PORT` | Porta do serviço (`8001`) |
+| `SEED_ON_STARTUP` | `true`/`false` (importa dados mock no startup se ativado) |
+| `SEED_DATA_PATH` | Caminho do JSON de seed (padrão `app/resources/test_data/farms.json`) |
+| `DB_POOL_SIZE` | Tamanho do pool SQLAlchemy (padrão `5`) |
+| `DB_MAX_OVERFLOW` | Conexões extras de overflow (padrão `10`) |
+| `DB_PREPARE_THRESHOLD` | `None` para Supavisor em *transaction mode*, ou inteiro |
+
+## Seed de Dados Mock (farms.json)
+
+O seed pode ser executado manualmente ou no startup da API:
+
+```bash
+# Execução manual via CLI
+python -m app.seed.import_farms
+
+# Ou defina SEED_ON_STARTUP=true no .env para popular na subida do container
+```
+
+A importação é **estritamente idempotente** (`ON CONFLICT DO NOTHING`), garantindo que execuções repetidas não dupliquem dados.
+
+## Baseline de Latência (p95 < 50ms)
+
+Aferição automatizada das métricas de tempo de resposta em rede interna (Critério S5):
+
+```bash
+python scripts/benchmark_latency.py --iterations 50
+```
 
 ## Executando localmente
 
@@ -97,23 +123,23 @@ uv run pytest
 
 1. No Supabase, copie a connection string do **pooler (Supavisor)** (o host direto é IPv6 e o Render não tem saída IPv6).
 2. No Render, defina `DATABASE_URL=postgresql+psycopg://postgres.<ref>:<senha>@aws-0-<regiao>.pooler.supabase.com:6543/postgres?sslmode=require` e um `SERVICE_TOKEN` forte.
-3. Rode as migrações pelo modo *session* do pooler (porta `5432`): `alembic upgrade head`.
-4. Habilite **RLS sem policies** nas tabelas `consultants`, `producers` e `diagnostic_results`, para que a `anon key` não leia hashes.
-
-> [!NOTE]
-> Pendente na F4: configurar `prepare_threshold=None` (pooler em modo *transaction*) e o tamanho do pool via settings, e automatizar o RLS em migração. Veja a [spec §13](./feature_spec_db_api_ishikawa.md).
-> Evite Postgres em container no Render: o disco é efêmero e um deploy/restart apaga os dados. O free tier do Supabase pausa após ~7 dias sem atividade.
+3. Rode as migrações pelo modo *session* do pooler (porta `5432`): `alembic upgrade head`. A migração `004_enable_rls` ativa Row Level Security em todas as tabelas (D19).
+4. O pooler opera com `prepare_threshold=None` e limites controlados de pool.
 
 ## Estrutura
 
 ```text
 app/
-├── main.py          # FastAPI, handlers RFC 7807
+├── main.py          # FastAPI, lifespan com seed condicional, handlers RFC 7807
 ├── core/            # config, security (bcrypt, X-Service-Token), errors
-├── api/             # health.py e v1/ (auth, consultants, producers)
+├── api/             # health.py e v1/ (auth, consultants, producers, diagnostic_results)
 ├── schemas/         # DTOs Pydantic
-├── services/        # regras de negócio
-└── db/              # models, session, repositories
-alembic/             # migrações (001 consultores, 002 produtores)
+├── services/        # regras de negócio e concorrência
+├── seed/            # import_farms.py (módulo e CLI de seed)
+├── resources/       # test_data/farms.json
+└── db/              # models, session (pooling/Supavisor), repositories
+alembic/             # migrações (001 consultores, 002 produtores, 003 diagnósticos, 004 RLS)
+scripts/             # benchmark_latency.py
+docs/                # client_integration_guide.md
 tests/               # unit/ e integration/ (testcontainers)
 ```

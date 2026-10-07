@@ -1,3 +1,4 @@
+import logging
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 from fastapi import FastAPI, HTTPException, Request, status
@@ -8,12 +9,23 @@ from app.api.health import health_router
 from app.api.v1.api import api_v1_router
 from app.core.config import settings
 from app.core.errors import DomainError, ProblemDetail, create_problem_detail
+from app.db.session import SessionLocal
+from app.seed.import_farms import run_seed
+
+logger = logging.getLogger("db_api.main")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Lifespan gerenciando inicialização e finalização da aplicação."""
     # Startup actions
+    if settings.SEED_ON_STARTUP:
+        logger.info("SEED_ON_STARTUP habilitado. Executando seed de dados...")
+        db = SessionLocal()
+        try:
+            run_seed(db)
+        finally:
+            db.close()
     yield
     # Shutdown actions
 
