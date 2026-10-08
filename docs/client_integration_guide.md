@@ -3,8 +3,9 @@
 > [!NOTE]
 > **Documento de Handoff Técnico:** Destinado à equipe de desenvolvimento da `API_Ishikawa_Educampo` para a implementação e homologação dos adaptadores HTTP (`HttpProducerRepository`, `HttpConsultantRepository`, `HttpDiagnosticResultRepository`).
 >
-> *Ref: Obsidian notes [[sdd-db-api-ishikawa]], [[2026-10-07-supabase-managed-postgres-and-credential-ownership]] e [[epic-db-api-ishikawa-service]].*
+> *Ref: Obsidian notes [[sdd-db-api-ishikawa]], [[2026-10-07-supabase-managed-postgres-and-credential-ownership]], [[db-api-integration]] e [[epic-db-api-ishikawa-service]].*
 >
+> * **Documentações Complementares:** [Arquitetura de Tabelas (ERD)](file:///e:/Codigos/Educampo/DB_API_Ishikawa/docs/database_schema_architecture.md), [Arquitetura da API (UML)](file:///e:/Codigos/Educampo/DB_API_Ishikawa/docs/api_architecture_and_components.md) e [Diagramas de Sequência Inter-serviços](file:///e:/Codigos/Educampo/DB_API_Ishikawa/docs/integration_sequence_flows.md).
 > * **Contrato Base:** Interfaces ABC em `API_Ishikawa_Educampo/app/contracts/repositories.py`
 > * **Protocolo:** REST / JSON via rede interna protegida por `X-Service-Token`
 > * **Banco em Produção:** Supabase (PostgreSQL 16 gerenciado)
