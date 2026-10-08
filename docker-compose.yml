@@ -1,40 +1,54 @@
 services:
-  postgres:
-    image: postgres:16-alpine
-    container_name: db_api_postgres
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: db_user
-      POSTGRES_PASSWORD: db_secret_pass
-      POSTGRES_DB: db_ishikawa
-    ports:
-      - "5433:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U db_user -d db_ishikawa"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-    networks:
-      - ishikawa_internal
-
   db-api:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: db_api_service
     restart: unless-stopped
+    env_file:
+      - .env
     environment:
-      ENVIRONMENT: development
-      API_V1_STR: /v1
-      DATABASE_URL: postgresql+psycopg://db_user:db_secret_pass@postgres:5432/db_ishikawa
-      SERVICE_TOKEN: local-dev-service-token-change-in-production
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      API_V1_STR: ${API_V1_STR:-/v1}
+      DATABASE_URL: ${DATABASE_URL}
+      SERVICE_TOKEN: ${SERVICE_TOKEN:-local-dev-service-token-change-in-production}
+      SEED_ON_STARTUP: ${SEED_ON_STARTUP:-false}
+      SEED_DATA_PATH: ${SEED_DATA_PATH:-app/resources/test_data/farms.json}
+      DB_POOL_SIZE: ${DB_POOL_SIZE:-5}
+      DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-10}
+      DB_POOL_TIMEOUT: ${DB_POOL_TIMEOUT:-30}
     ports:
-      - "8002:8001"
-    depends_on:
-      postgres:
-        condition: service_healthy
+      - "${PORT:-8002}:8001"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health/live')"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - ishikawa_internal
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: db_api_postgres
+    restart: unless-stopped
+    profiles:
+      - local-db
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-db_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-db_secret_pass}
+      POSTGRES_DB: ${POSTGRES_DB:-db_ishikawa}
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-db_user} -d ${POSTGRES_DB:-db_ishikawa}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
     networks:
       - ishikawa_internal
 
