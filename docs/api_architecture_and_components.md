@@ -58,8 +58,9 @@ graph TD
 
     Adapters -->|"HTTP REST JSON"| Presentation
     Presentation --> Services
-    Services --> Repositories
-    Repositories --> Infrastructure
+    Services -->|"Invoca Repositório"| Repositories
+    Repositories -->|"Session Query"| Engine
+    Engine -->|"Pool SQL (5432/6543)"| Database
 ```
 
 ---
