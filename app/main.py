@@ -33,7 +33,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 app = FastAPI(
     title="DB_API_Ishikawa",
     description="Serviço dedicado de persistência e validação de credenciais do Ecossistema Educampo Ishikawa",
-    version="0.1.0",
+    version="1.0.0",
     lifespan=lifespan,
     docs_url="/docs" if settings.ENVIRONMENT != "production" else None,
     redoc_url="/redoc" if settings.ENVIRONMENT != "production" else None,

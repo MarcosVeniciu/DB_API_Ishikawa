@@ -1,6 +1,6 @@
 [project]
 name = "db-api-ishikawa"
-version = "0.1.0"
+version = "1.0.0"
 description = "Serviço dedicado de persistência e validação de credenciais do Ecossistema Educampo Ishikawa"
 readme = "README.md"
 requires-python = ">=3.12"
