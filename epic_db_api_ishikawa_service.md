@@ -27,13 +27,13 @@ A `API_Ishikawa_Educampo` persiste dados de forma simulada: Redis (produtores, r
 ### Desired Observable Outcome
 Um serviço `DB_API_Ishikawa` independente, em Docker, com API REST `/v1` cujo contrato espelha 1:1 as interfaces ABC atuais (`IProducerRepository`, `IConsultantRepository`, `IDiagnosticResultRepository`), pronto para ser consumido sem alterar services/rotas/worker da API Ishikawa. O PostgreSQL 16 roda em **Docker em dev/CI** e no **Supabase (apenas Postgres gerenciado) em staging/prod**, trocando só a `DATABASE_URL`.
 
-### Status Atual (2026-10-07)
+### Status Atual (2026-10-08)
 | Fase | Estado |
 |---|---|
 | F1 Skeleton + Consultores + Auth | ✅ Implementada |
 | F2 Produtores | ✅ Implementada |
-| F3 Resultados de Diagnóstico | 🔄 Planejamento (branch `feature/db-api-diagnostic-results`) |
-| F4 Seed + Hardening + Deploy Supabase | ⏳ Pendente |
+| F3 Resultados de Diagnóstico | ✅ Implementada |
+| F4 Seed + Hardening + Deploy Supabase | ✅ Implementada |
 
 ### Epic Success Criteria
 
